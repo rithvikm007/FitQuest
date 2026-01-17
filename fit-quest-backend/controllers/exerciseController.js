@@ -28,7 +28,7 @@ const createExercise = asyncHandler(async (req, res) => {
         equipment,
         instructions,
         videoUrl,
-        isCustom: false,
+        isCustom: true,
         user: req.user._id
     });
 
@@ -93,8 +93,8 @@ const updateExercise = asyncHandler(async (req, res) => {
     const exercise = await Exercise.findById(req.params.id);
 
     if (exercise) {
-        // Only allow updating custom exercises that belong to the user
-        if (!exercise.isCustom || exercise.user.toString() !== req.user._id.toString()) {
+        // Only allow updating if: exercise belongs to the user OR user is the admin who created it
+        if (exercise.isCustom && exercise.user.toString() !== req.user._id.toString()) {
             res.status(403);
             throw new Error('Not authorized to update this exercise');
         }
@@ -136,8 +136,8 @@ const deleteExercise = asyncHandler(async (req, res) => {
     const exercise = await Exercise.findById(req.params.id);
 
     if (exercise) {
-        // Only allow deleting custom exercises that belong to the user
-        if (!exercise.isCustom || exercise.user.toString() !== req.user._id.toString()) {
+        // Only allow deleting if: exercise belongs to the user OR user is the admin who created it
+        if (exercise.isCustom && exercise.user.toString() !== req.user._id.toString()) {
             res.status(403);
             throw new Error('Not authorized to delete this exercise');
         }
@@ -161,17 +161,26 @@ const searchExercises = asyncHandler(async (req, res) => {
         throw new Error('Please provide a search query');
     }
 
+    const searchRegex = new RegExp(q, 'i');
     const exercises = await Exercise.find(
         {
-            $text: { $search: q },
             $or: [
-                { isCustom: false },
-                { user: req.user ? req.user._id : null }
+                { name: searchRegex },
+                { description: searchRegex },
+                { primaryMuscle: searchRegex },
+                { type: searchRegex },
+                { category: searchRegex }
+            ],
+            $and: [
+                {
+                    $or: [
+                        { isCustom: false },
+                        { user: req.user ? req.user._id : null }
+                    ]
+                }
             ]
-        },
-        { score: { $meta: "textScore" } }
+        }
     )
-    .sort({ score: { $meta: "textScore" } })
     .populate('user', 'name');
 
     res.json(exercises);
