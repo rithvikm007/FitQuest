@@ -3,12 +3,10 @@ const mongoose = require('mongoose');
 const exerciseSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true,
-        unique: true
+        required: true
     },
     description: {
         type: String,
-        required: true,
         maxLength: 200  // Brief overview of the exercise
     },
     category: {
@@ -72,5 +70,6 @@ const exerciseSchema = new mongoose.Schema({
 exerciseSchema.index({ name: 'text', description: 'text' });
 exerciseSchema.index({ category: 1, isCustom: 1 });
 exerciseSchema.index({ user: 1 });
+exerciseSchema.index({ name: 1, user: 1 }, { unique: true });
 
 module.exports = mongoose.model('Exercise', exerciseSchema);
