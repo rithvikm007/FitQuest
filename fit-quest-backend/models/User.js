@@ -31,7 +31,16 @@ const userSchema = new mongoose.Schema({
         weight: { type: Number, default: null },  // in kg
         firstName: { type: String, default: '' },
         lastName: { type: String, default: '' }
-    }
+    },
+    syncInfo: [{
+        deviceId: { 
+            type: String, 
+            required: true 
+        },
+        lastSyncAt: { type: Date, default: Date.now },
+        pendingChanges: { type: Number, default: 0 },
+        version: { type: String } // app version
+    }]
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
