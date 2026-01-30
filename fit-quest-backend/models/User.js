@@ -32,6 +32,11 @@ const userSchema = new mongoose.Schema({
         firstName: { type: String, default: '' },
         lastName: { type: String, default: '' }
     },
+    bodyWeightHistory: [{
+        weight: { type: Number, required: true },     // kg
+        measuredAt: { type: Date, default: Date.now },
+        notes: { type: String, maxlength: 200 }
+    }],
     syncInfo: [{
         deviceId: { 
             type: String, 
