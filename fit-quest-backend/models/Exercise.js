@@ -16,13 +16,13 @@ const exerciseSchema = new mongoose.Schema({
     },
     primaryMuscle: {
         type: String,
-        enum: ['abdominals', 'abductors', 'adductors', 'biceps', 'calves', 'cardio', 'chest', 'forearms', 'full body', 'glutes', 'hamstrings', 'lats', 'lower back', 'middle back', 'neck', 'quadriceps', 'shoulders', 'traps', 'triceps', 'upper back', 'other'],
+        enum: ['abdominals', 'abductors', 'adductors', 'biceps', 'calves', 'cardio', 'chest', 'forearms', 'full body', 'glutes', 'hamstrings', 'lats', 'lower back', 'middle back', 'neck', 'quadriceps', 'obliques', 'core', 'shoulders', 'traps', 'triceps', 'upper back', 'other'],
         required: true,
         default: 'other'
     },
     otherMuscles: [{
         type: String,
-        enum: ['abdominals', 'abductors', 'adductors', 'biceps', 'calves', 'cardio', 'chest', 'forearms', 'full body', 'glutes', 'hamstrings', 'lats', 'lower back', 'middle back', 'neck', 'obliques', 'quadriceps', 'shoulders', 'traps', 'triceps', 'upper back', 'other']
+        enum: ['abdominals', 'abductors', 'adductors', 'biceps', 'calves', 'cardio', 'chest', 'forearms', 'full body', 'glutes', 'hamstrings', 'lats', 'lower back', 'middle back', 'neck', 'obliques', 'core', 'quadriceps', 'shoulders', 'traps', 'triceps', 'upper back', 'other']
     }],
     type: {
         type: String,
