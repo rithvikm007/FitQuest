@@ -1,4 +1,5 @@
 const Workout = require('../models/Workout');
+const Plan = require('../models/Plan');
 const asyncHandler = require('express-async-handler');
 
 // @desc    Create a new workout
@@ -22,7 +23,9 @@ const createWorkout = asyncHandler(async (req, res) => {
         sourcePlan
     });
 
-    res.status(201).json(workout);
+    const populatedWorkout = await Workout.findById(workout._id).populate('exercises.exercise sourcePlan','name category equipment');
+
+    res.status(201).json(populatedWorkout);
 });
 
 // @desc    Get all workouts for the logged-in user
@@ -32,7 +35,7 @@ const getWorkouts = asyncHandler(async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const workouts = await Workout.find({ user: req.user._id })
-        .populate('exercises.exercise','name category')
+        .populate('exercises.exercise sourcePlan','name category equipment')
         .sort({ date: -1 })
         .limit(limit)
         .skip((page - 1) * limit);
@@ -43,7 +46,7 @@ const getWorkouts = asyncHandler(async (req, res) => {
 // @route   GET /api/workouts/:id
 // @access  Private
 const getWorkoutById = asyncHandler(async (req, res) => {
-    const workout = await Workout.findById(req.params.id).populate('exercises.exercise','name category equipment');
+    const workout = await Workout.findById(req.params.id).populate('exercises.exercise sourcePlan','name category equipment');
     if (workout && workout.user.toString() === req.user._id.toString()) {
         res.json(workout);
     } else {
@@ -56,7 +59,7 @@ const getWorkoutById = asyncHandler(async (req, res) => {
 // @route  PUT /api/workouts/:id
 // @access Private
 const updateWorkout = asyncHandler(async (req, res) => {
-    const workout = await Workout.findById(req.params.id).populate('exercises.exercise','name category equipment');
+    const workout = await Workout.findById(req.params.id).populate('exercises.exercise sourcePlan','name category equipment');
     if (workout && workout.user.toString() === req.user._id.toString()) {
         const { name, exercises, notes, date, sourcePlan } = req.body;
         workout.name = name || workout.name;
@@ -66,7 +69,7 @@ const updateWorkout = asyncHandler(async (req, res) => {
         workout.sourcePlan = sourcePlan || workout.sourcePlan;
         await workout.save();
         const updatedWorkout = await Workout.findById(req.params.id)
-            .populate('exercises.exercise');
+            .populate('exercises.exercise sourcePlan','name category equipment');
         res.json(updatedWorkout);
     } else {
         res.status(404);
@@ -97,11 +100,41 @@ const searchWorkouts = asyncHandler(async (req, res) => {
     res.json(workouts);
 });
 
+// @desc    Start a workout from a plan
+// @route   POST /api/workouts/from-plan/:id
+// @access  Private
+const startWorkoutFromPlan = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  const plan = await Plan.findById(id).populate('exercises.exercise', 'name');
+  if (!plan || plan.user.toString() !== req.user._id.toString()) {
+    res.status(404);
+    throw new Error('Plan not found');
+  }
+
+  const workout = await Workout.create({
+    user: req.user._id,
+    name: req.body.name || `${plan.name} - ${new Date().toLocaleDateString()}`,
+    date: new Date(),
+    exercises: plan.exercises.map(exercise => ({
+      exercise: exercise.exercise._id,
+      sets: exercise.sets
+    }))
+  });
+  
+  const populatedWorkout = await Workout.findById(workout._id)
+    .populate('exercises.exercise sourcePlan','name category equipment');
+    
+  res.status(201).json(populatedWorkout);
+});
+
+
 module.exports = {
     createWorkout,
     getWorkouts,
     getWorkoutById,
     updateWorkout,
     deleteWorkout,
-    searchWorkouts
+    searchWorkouts,
+    startWorkoutFromPlan
 };

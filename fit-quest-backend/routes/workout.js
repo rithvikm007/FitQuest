@@ -7,7 +7,8 @@ const {
     getWorkoutById,
     updateWorkout,
     deleteWorkout,
-    searchWorkouts
+    searchWorkouts,
+    startWorkoutFromPlan
 } = require('../controllers/workoutController');
 
 // Search route
@@ -15,6 +16,7 @@ router.get('/search', protect, searchWorkouts);
 
 // Protected routes
 router.post('/', protect, createWorkout);
+router.post('/from-plan/:id', protect, startWorkoutFromPlan);
 router.get('/', protect, getWorkouts);
 router.get('/:id', protect, getWorkoutById);
 router.put('/:id', protect, updateWorkout);
