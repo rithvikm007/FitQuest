@@ -5,6 +5,7 @@ const userRoutes = require('./routes/user');
 const exerciseRoutes = require('./routes/exercise');
 const workoutRoutes = require('./routes/workout');
 const planRoutes = require('./routes/plan');
+const syncRoutes = require('./routes/sync');
 require('dotenv').config({ path: './.env' });
 
 const app = express();
@@ -14,6 +15,7 @@ app.use('/api/auth', userRoutes);
 app.use('/api/exercises', exerciseRoutes);
 app.use('/api/workouts', workoutRoutes);
 app.use('/api/plans', planRoutes);
+app.use('/api/sync', syncRoutes);
 
 main()
     .then(() => {
@@ -36,9 +38,8 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       exercises: '/api/exercises',
       workouts: '/api/workouts',
-      analytics: '/api/analytics',
-      bodyWeight: '/api/body-weight',
-      plans: '/api/plans'
+      plans: '/api/plans',
+      sync: '/api/sync'
     }
   });
 });
