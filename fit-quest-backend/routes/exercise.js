@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
+const { validateExercise } = require('../middleware/validation');
 const {
     createExercise,
     getExercises,
@@ -18,8 +19,8 @@ router.get('/', getExercises);
 router.get('/:id', getExerciseById);
 
 // Protected routes
-router.post('/', protect, createExercise);
-router.put('/:id', protect, updateExercise);
+router.post('/', protect, validateExercise, createExercise);
+router.put('/:id', protect, validateExercise, updateExercise);
 router.delete('/:id', protect, deleteExercise);
 
 module.exports = router;

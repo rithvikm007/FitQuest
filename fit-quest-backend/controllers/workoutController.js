@@ -116,6 +116,7 @@ const startWorkoutFromPlan = asyncHandler(async (req, res) => {
     user: req.user._id,
     name: req.body.name || `${plan.name} - ${new Date().toLocaleDateString()}`,
     date: new Date(),
+    sourcePlan: plan._id,
     exercises: plan.exercises.map(exercise => ({
       exercise: exercise.exercise._id,
       sets: exercise.sets
