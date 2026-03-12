@@ -1,29 +1,43 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * FitQuest App Theme Colors
+ * These colors match the NativeWind configuration in tailwind.config.js
  */
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// Brand Colors
+export const BrandColors = {
+  primary: '#A556FB',
+  secondary: '#4922E5',
+  dark: '#020202',
+  white: '#FFFFFF',
+  black: '#000000',
+};
+
+// Functional Colors
+const tintColorLight = BrandColors.primary;
+const tintColorDark = BrandColors.white;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: BrandColors.dark,
+    background: BrandColors.white,
     tint: tintColorLight,
     icon: '#687076',
     tabIconDefault: '#687076',
     tabIconSelected: tintColorLight,
+    border: '#E5E5E5',
+    card: BrandColors.white,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: BrandColors.white,
+    background: BrandColors.dark,
     tint: tintColorDark,
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
+    border: '#333333',
+    card: '#1A1A1A',
   },
 };
 
