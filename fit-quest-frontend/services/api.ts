@@ -1,6 +1,15 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import {
+  toBackendExercisePayload,
+  toBackendPlanPayload,
+  toBackendWorkoutPayload,
+  toIsoString,
+  toLocalExerciseRecord,
+  toLocalPlanNormalized,
+  toLocalWorkoutNormalized,
+} from '@/services/syncMappers';
 
 import type {
   BackendExerciseDocument,
@@ -9,12 +18,14 @@ import type {
   BackendWorkoutDocument,
   Exercise,
   Plan,
+  PlanExercise,
   PlanSet,
   PlanWithExercises,
   SyncPayload,
   SyncResponse,
   User,
   Workout,
+  WorkoutExercise,
   WorkoutSet,
   WorkoutWithExercises,
 } from '@/types/models';
@@ -64,11 +75,13 @@ type MeData = {
 
 type NormalizedWorkoutBundle = {
   workout: Workout;
+  exercises: WorkoutExercise[];
   sets: WorkoutSet[];
 };
 
 type NormalizedPlanBundle = {
   plan: Plan;
+  exercises: PlanExercise[];
   sets: PlanSet[];
 };
 
@@ -100,37 +113,6 @@ function getErrorMessage(error: unknown): string {
   }
 
   return String(error);
-}
-
-function toIso(value: string | Date | undefined, fallbackIso: string): string {
-  if (!value) return fallbackIso;
-  if (value instanceof Date) return value.toISOString();
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return fallbackIso;
-  }
-
-  return parsed.toISOString();
-}
-
-function extractMongoId(value: unknown): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (typeof value === 'object' && value !== null && '_id' in value) {
-    const maybeId = (value as { _id?: unknown })._id;
-    if (typeof maybeId === 'string') {
-      return maybeId;
-    }
-  }
-
-  return undefined;
 }
 
 function generateUuid(): string {
@@ -189,101 +171,28 @@ export function normalizeBackendUser(document: BackendUserDocument, existingLoca
  * Maps local Exercise fields to backend Exercise payload shape.
  */
 export function serializeExerciseForApi(exercise: Partial<Exercise>): Record<string, unknown> {
-  const payload: Record<string, unknown> = {
-    name: exercise.name,
-    description: exercise.description,
-    category: exercise.category,
-    primaryMuscle: exercise.primaryMuscle,
-    otherMuscles: exercise.otherMuscles ?? [],
-    type: exercise.type,
-    equipment: exercise.equipment,
-    instructions: exercise.instructions ?? [],
-    videoUrl: exercise.videoUrl,
-    isCustom: exercise.isCustom,
-  };
-
-  if (exercise.remoteId) {
-    payload._id = exercise.remoteId;
-  }
-
-  return payload;
+  return toBackendExercisePayload(exercise);
 }
 
 /**
  * Maps backend Exercise document to local Exercise while keeping remoteId separate.
  */
 export function normalizeBackendExercise(document: BackendExerciseDocument, existingLocalId?: string): Exercise {
-  const now = new Date().toISOString();
-
-  return {
-    id: existingLocalId ?? generateUuid(),
-    remoteId: document._id,
-    name: document.name,
-    description: document.description,
-    category: document.category,
-    primaryMuscle: document.primaryMuscle,
-    otherMuscles: document.otherMuscles ?? [],
-    type: document.type,
-    equipment: document.equipment,
-    instructions: document.instructions ?? [],
-    videoUrl: document.videoUrl,
-    isCustom: document.isCustom,
-    userId: typeof document.user === 'string' ? document.user : undefined,
-    isDeleted: false,
-    syncStatus: 'synced',
-    createdAt: toIso(document.createdAt, now),
-    updatedAt: toIso(document.updatedAt, now),
-  };
+  return toLocalExerciseRecord(document, { existingLocalId, idFactory: generateUuid });
 }
 
 /**
  * Converts local normalized workout-with-exercises into backend nested workout payload.
  */
 export function serializeWorkoutForApi(workout: WorkoutWithExercises): Record<string, unknown> {
-  return {
-    ...(workout.remoteId ? { _id: workout.remoteId } : {}),
-    user: workout.remoteId ? undefined : workout.userId,
-    date: workout.date,
-    name: workout.name,
-    notes: workout.notes,
-    sourcePlan: workout.sourcePlanRemoteId ?? workout.sourcePlanId,
-    exercises: workout.exercises.map((workoutExercise) => ({
-      exercise: workoutExercise.exercise.remoteId ?? workoutExercise.exerciseId,
-      sets: workoutExercise.sets
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((set) => ({
-          reps: set.reps,
-          weight: set.weight,
-          duration: set.duration,
-          distance: set.distance,
-          notes: set.notes,
-        })),
-    })),
-  };
+  return toBackendWorkoutPayload(workout);
 }
 
 /**
  * Converts local normalized plan-with-exercises into backend nested plan payload.
  */
 export function serializePlanForApi(plan: PlanWithExercises): Record<string, unknown> {
-  return {
-    ...(plan.remoteId ? { _id: plan.remoteId } : {}),
-    user: plan.remoteId ? undefined : plan.userId,
-    name: plan.name,
-    plannedDate: plan.plannedDate,
-    exercises: plan.exercises.map((planExercise) => ({
-      exercise: planExercise.exercise.remoteId ?? planExercise.exerciseId,
-      sets: planExercise.sets
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((set) => ({
-          reps: set.reps,
-          weight: set.weight,
-          duration: set.duration,
-          distance: set.distance,
-          notes: set.notes,
-        })),
-    })),
-  };
+  return toBackendPlanPayload(plan);
 }
 
 /**
@@ -298,66 +207,19 @@ export function normalizeBackendWorkout(
     resolveLocalExerciseId?: (remoteExerciseId: string) => string | undefined;
   }
 ): NormalizedWorkoutBundle {
-  const now = new Date().toISOString();
-  const localWorkoutId = options?.existingLocalWorkoutId ?? generateUuid();
+  const mapped = toLocalWorkoutNormalized(document, {
+    fallbackUserId: document.user,
+    existingLocalWorkoutId: options?.existingLocalWorkoutId,
+    sourcePlanLocalId: options?.sourcePlanLocalId,
+    resolveLocalExerciseId: options?.resolveLocalExerciseId,
+    idFactory: generateUuid,
+  });
 
-  const workout: Workout = {
-    id: localWorkoutId,
-    remoteId: document._id,
-    userId: document.user,
-    date: toIso(document.date, now),
-    name: document.name,
-    notes: document.notes,
-    sourcePlanId: options?.sourcePlanLocalId,
-    sourcePlanRemoteId: document.sourcePlan,
-    isDeleted: false,
-    syncStatus: 'synced',
-    createdAt: toIso(document.createdAt, now),
-    updatedAt: toIso(document.updatedAt, now),
+  return {
+    workout: mapped.workout,
+    exercises: mapped.exercises,
+    sets: mapped.sets,
   };
-
-  const sets: WorkoutSet[] = [];
-  for (const [exerciseIndex, remoteExercise] of document.exercises.entries()) {
-    const remoteExerciseId = extractMongoId(remoteExercise.exercise) ?? '';
-    const resolvedExerciseId =
-      (remoteExerciseId && options?.resolveLocalExerciseId?.(remoteExerciseId)) ?? remoteExerciseId;
-
-    const workoutExerciseId = generateUuid();
-
-    for (const [setIndex, set] of (remoteExercise.sets ?? []).entries()) {
-      sets.push({
-        id: generateUuid(),
-        workoutExerciseId,
-        reps: set.reps,
-        weight: set.weight,
-        duration: set.duration,
-        distance: set.distance,
-        notes: set.notes,
-        orderIndex: setIndex,
-        createdAt: now,
-      });
-    }
-
-    // We include an extra synthetic set row when a workout exercise has no sets
-    // so callers can still recover ordering metadata through index values.
-    if ((remoteExercise.sets ?? []).length === 0) {
-      sets.push({
-        id: generateUuid(),
-        workoutExerciseId,
-        orderIndex: 0,
-        createdAt: now,
-      });
-    }
-
-    // Carry exercise ordering through sort position. Caller can map this back
-    // while creating workout_exercises rows.
-    (sets[sets.length - 1] as WorkoutSet & { __exerciseIndex?: number; __exerciseId?: string }).__exerciseIndex =
-      exerciseIndex;
-    (sets[sets.length - 1] as WorkoutSet & { __exerciseIndex?: number; __exerciseId?: string }).__exerciseId =
-      resolvedExerciseId;
-  }
-
-  return { workout, sets };
 }
 
 /**
@@ -371,60 +233,18 @@ export function normalizeBackendPlan(
     resolveLocalExerciseId?: (remoteExerciseId: string) => string | undefined;
   }
 ): NormalizedPlanBundle {
-  const now = new Date().toISOString();
-  const localPlanId = options?.existingLocalPlanId ?? generateUuid();
+  const mapped = toLocalPlanNormalized(document, {
+    fallbackUserId: document.user,
+    existingLocalPlanId: options?.existingLocalPlanId,
+    resolveLocalExerciseId: options?.resolveLocalExerciseId,
+    idFactory: generateUuid,
+  });
 
-  const plan: Plan = {
-    id: localPlanId,
-    remoteId: document._id,
-    userId: document.user,
-    name: document.name,
-    plannedDate: document.plannedDate ? toIso(document.plannedDate, now) : undefined,
-    isDeleted: false,
-    syncStatus: 'synced',
-    createdAt: toIso(document.createdAt, now),
-    updatedAt: toIso(document.updatedAt, now),
+  return {
+    plan: mapped.plan,
+    exercises: mapped.exercises,
+    sets: mapped.sets,
   };
-
-  const sets: PlanSet[] = [];
-
-  for (const [exerciseIndex, remoteExercise] of document.exercises.entries()) {
-    const remoteExerciseId = extractMongoId(remoteExercise.exercise) ?? '';
-    const resolvedExerciseId =
-      (remoteExerciseId && options?.resolveLocalExerciseId?.(remoteExerciseId)) ?? remoteExerciseId;
-
-    const planExerciseId = generateUuid();
-
-    for (const [setIndex, set] of (remoteExercise.sets ?? []).entries()) {
-      sets.push({
-        id: generateUuid(),
-        planExerciseId,
-        reps: set.reps,
-        weight: set.weight,
-        duration: set.duration,
-        distance: set.distance,
-        notes: set.notes,
-        orderIndex: setIndex,
-        createdAt: now,
-      });
-    }
-
-    if ((remoteExercise.sets ?? []).length === 0) {
-      sets.push({
-        id: generateUuid(),
-        planExerciseId,
-        orderIndex: 0,
-        createdAt: now,
-      });
-    }
-
-    (sets[sets.length - 1] as PlanSet & { __exerciseIndex?: number; __exerciseId?: string }).__exerciseIndex =
-      exerciseIndex;
-    (sets[sets.length - 1] as PlanSet & { __exerciseIndex?: number; __exerciseId?: string }).__exerciseId =
-      resolvedExerciseId;
-  }
-
-  return { plan, sets };
 }
 
 // ---------------------------------------------------------------------------

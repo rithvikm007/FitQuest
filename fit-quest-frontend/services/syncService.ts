@@ -8,15 +8,22 @@ import {
   deleteExercise,
   deletePlan,
   deleteWorkout,
-  normalizeBackendExercise,
-  serializeExerciseForApi,
-  serializePlanForApi,
-  serializeWorkoutForApi,
   syncData,
   updateExercise,
   updatePlan,
   updateWorkout,
 } from '@/services/api';
+import {
+  extractRemoteId,
+  isCompleteBackendExerciseDocument,
+  toBackendExercisePayload,
+  toBackendPlanPayload,
+  toBackendWorkoutPayload,
+  toIsoString,
+  toLocalExerciseRecord,
+  toLocalPlanNormalized,
+  toLocalWorkoutNormalized,
+} from '@/services/syncMappers';
 import { getExerciseById, saveExercise } from '@/services/db/exerciseDbService';
 import { getPlanById, savePlan } from '@/services/db/planDbService';
 import { getSyncQueue, markSynced } from '@/services/db/syncQueueService';
@@ -73,18 +80,6 @@ function generateUuid(): string {
   });
 }
 
-function toIso(value: string | Date | undefined, fallbackIso: string): string {
-  if (!value) return fallbackIso;
-  if (value instanceof Date) return value.toISOString();
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return fallbackIso;
-  }
-
-  return parsed.toISOString();
-}
-
 function parsePayload(payload: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(payload);
@@ -101,19 +96,6 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function extractMongoId(value: unknown): string | undefined {
-  if (!value) return undefined;
-  if (typeof value === 'string') return value;
-
-  if (typeof value === 'object' && value !== null && '_id' in value) {
-    const maybeId = (value as { _id?: unknown })._id;
-    if (typeof maybeId === 'string') {
-      return maybeId;
-    }
-  }
-
-  return undefined;
-}
 
 function isNotFoundError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -336,33 +318,16 @@ async function resolveExerciseLocalIdFromRemote(remoteExerciseId: string): Promi
   return row?.id;
 }
 
-function isCompleteExerciseDocument(value: unknown): value is BackendExerciseDocument {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const candidate = value as Partial<BackendExerciseDocument>;
-  return (
-    typeof candidate._id === 'string' &&
-    typeof candidate.name === 'string' &&
-    typeof candidate.category === 'string' &&
-    typeof candidate.primaryMuscle === 'string' &&
-    typeof candidate.type === 'string' &&
-    typeof candidate.equipment === 'string' &&
-    Array.isArray(candidate.instructions)
-  );
-}
-
 async function ensureExerciseForRemoteValue(value: unknown): Promise<Exercise | null> {
-  const remoteId = extractMongoId(value);
+  const remoteId = extractRemoteId(value);
   if (!remoteId) {
     return null;
   }
 
   // Only persist when we have a fully shaped exercise document.
   // Some backend sync responses include partial nested exercise data.
-  if (isCompleteExerciseDocument(value)) {
-    const normalized = normalizeBackendExercise(value);
+  if (isCompleteBackendExerciseDocument(value)) {
+    const normalized = toLocalExerciseRecord(value, { idFactory: generateUuid });
     const resolvedId = await saveExercise(normalized);
     await setEntitySynced('exercise', resolvedId);
     const saved = await getExerciseById(resolvedId);
@@ -381,121 +346,69 @@ async function buildWorkoutFromBackendDocument(
   document: BackendWorkoutDocument,
   fallbackUserId: string
 ): Promise<{ workout: Workout; exercises: WorkoutExercise[]; sets: WorkoutSet[] } | null> {
-  const now = new Date().toISOString();
   const existing = await getEntityRowByRemoteId('workout', document._id);
-  const localWorkoutId = existing?.id ?? generateUuid();
-
-  const workoutExercises: WorkoutExercise[] = [];
-  const workoutSets: WorkoutSet[] = [];
-
-  for (const [exerciseIndex, remoteExercise] of (document.exercises ?? []).entries()) {
-    const resolvedExercise = await ensureExerciseForRemoteValue(remoteExercise.exercise);
-
-    if (!resolvedExercise) {
+  const exerciseIdMap = new Map<string, string>();
+  for (const remoteExercise of document.exercises ?? []) {
+    const remoteExerciseId = extractRemoteId(remoteExercise.exercise);
+    if (!remoteExerciseId || exerciseIdMap.has(remoteExerciseId)) {
       continue;
     }
 
-    const workoutExerciseId = generateUuid();
-    workoutExercises.push({
-      id: workoutExerciseId,
-      workoutId: localWorkoutId,
-      exerciseId: resolvedExercise.id,
-      orderIndex: exerciseIndex,
-      createdAt: now,
-    });
-
-    for (const [setIndex, set] of (remoteExercise.sets ?? []).entries()) {
-      workoutSets.push({
-        id: generateUuid(),
-        workoutExerciseId,
-        reps: set.reps,
-        weight: set.weight,
-        duration: set.duration,
-        distance: set.distance,
-        notes: set.notes,
-        orderIndex: setIndex,
-        createdAt: now,
-      });
+    const resolvedExercise = await ensureExerciseForRemoteValue(remoteExercise.exercise);
+    if (resolvedExercise) {
+      exerciseIdMap.set(remoteExerciseId, resolvedExercise.id);
     }
   }
 
-  const workout: Workout = {
-    id: localWorkoutId,
-    remoteId: document._id,
-    userId: fallbackUserId,
-    date: toIso(document.date, now),
-    name: document.name,
-    notes: document.notes,
-    sourcePlanRemoteId: document.sourcePlan,
-    isDeleted: false,
-    syncStatus: 'synced',
-    createdAt: toIso(document.createdAt, now),
-    updatedAt: toIso(document.updatedAt, now),
+  const sourcePlanLocalId = document.sourcePlan
+    ? (await getEntityRowByRemoteId('plan', document.sourcePlan))?.id
+    : undefined;
+
+  const mapped = toLocalWorkoutNormalized(document, {
+    fallbackUserId,
+    existingLocalWorkoutId: existing?.id,
+    sourcePlanLocalId,
+    resolveLocalExerciseId: (remoteExerciseId) => exerciseIdMap.get(remoteExerciseId),
+    idFactory: generateUuid,
+  });
+
+  return {
+    workout: mapped.workout,
+    exercises: mapped.exercises,
+    sets: mapped.sets,
   };
-
-  if (workout.sourcePlanRemoteId) {
-    const sourcePlan = await getEntityRowByRemoteId('plan', workout.sourcePlanRemoteId);
-    workout.sourcePlanId = sourcePlan?.id;
-  }
-
-  return { workout, exercises: workoutExercises, sets: workoutSets };
 }
 
 async function buildPlanFromBackendDocument(
   document: BackendPlanDocument,
   fallbackUserId: string
 ): Promise<{ plan: Plan; exercises: PlanExercise[]; sets: PlanSet[] } | null> {
-  const now = new Date().toISOString();
   const existing = await getEntityRowByRemoteId('plan', document._id);
-  const localPlanId = existing?.id ?? generateUuid();
-
-  const planExercises: PlanExercise[] = [];
-  const planSets: PlanSet[] = [];
-
-  for (const [exerciseIndex, remoteExercise] of (document.exercises ?? []).entries()) {
-    const resolvedExercise = await ensureExerciseForRemoteValue(remoteExercise.exercise);
-
-    if (!resolvedExercise) {
+  const exerciseIdMap = new Map<string, string>();
+  for (const remoteExercise of document.exercises ?? []) {
+    const remoteExerciseId = extractRemoteId(remoteExercise.exercise);
+    if (!remoteExerciseId || exerciseIdMap.has(remoteExerciseId)) {
       continue;
     }
 
-    const planExerciseId = generateUuid();
-    planExercises.push({
-      id: planExerciseId,
-      planId: localPlanId,
-      exerciseId: resolvedExercise.id,
-      orderIndex: exerciseIndex,
-      createdAt: now,
-    });
-
-    for (const [setIndex, set] of (remoteExercise.sets ?? []).entries()) {
-      planSets.push({
-        id: generateUuid(),
-        planExerciseId,
-        reps: set.reps,
-        weight: set.weight,
-        duration: set.duration,
-        distance: set.distance,
-        notes: set.notes,
-        orderIndex: setIndex,
-        createdAt: now,
-      });
+    const resolvedExercise = await ensureExerciseForRemoteValue(remoteExercise.exercise);
+    if (resolvedExercise) {
+      exerciseIdMap.set(remoteExerciseId, resolvedExercise.id);
     }
   }
 
-  const plan: Plan = {
-    id: localPlanId,
-    remoteId: document._id,
-    userId: fallbackUserId,
-    name: document.name,
-    plannedDate: document.plannedDate ? toIso(document.plannedDate, now) : undefined,
-    isDeleted: false,
-    syncStatus: 'synced',
-    createdAt: toIso(document.createdAt, now),
-    updatedAt: toIso(document.updatedAt, now),
-  };
+  const mapped = toLocalPlanNormalized(document, {
+    fallbackUserId,
+    existingLocalPlanId: existing?.id,
+    resolveLocalExerciseId: (remoteExerciseId) => exerciseIdMap.get(remoteExerciseId),
+    idFactory: generateUuid,
+  });
 
-  return { plan, exercises: planExercises, sets: planSets };
+  return {
+    plan: mapped.plan,
+    exercises: mapped.exercises,
+    sets: mapped.sets,
+  };
 }
 
 async function processExerciseQueueItem(
@@ -529,20 +442,20 @@ async function processExerciseQueueItem(
   if (item.operation === 'create') {
     const created = await createExercise(token, exercise);
     await setEntityRemoteIdAndSynced('exercise', exercise.id, created._id);
-    return serializeExerciseForApi({ ...exercise, remoteId: created._id });
+    return toBackendExercisePayload({ ...exercise, remoteId: created._id });
   }
 
   const remoteId = exercise.remoteId ?? queuedRemoteId;
   if (!remoteId) {
     const created = await createExercise(token, exercise);
     await setEntityRemoteIdAndSynced('exercise', exercise.id, created._id);
-    return serializeExerciseForApi({ ...exercise, remoteId: created._id });
+    return toBackendExercisePayload({ ...exercise, remoteId: created._id });
   }
 
   try {
     await updateExercise(token, remoteId, exercise);
     await setEntitySynced('exercise', exercise.id);
-    return serializeExerciseForApi({ ...exercise, remoteId });
+    return toBackendExercisePayload({ ...exercise, remoteId });
   } catch (error) {
     if (!isNotFoundError(error)) {
       throw error;
@@ -586,20 +499,20 @@ async function processWorkoutQueueItem(
   if (item.operation === 'create') {
     const created = await createWorkout(token, workout);
     await setEntityRemoteIdAndSynced('workout', workout.id, created._id);
-    return serializeWorkoutForApi({ ...workout, remoteId: created._id });
+    return toBackendWorkoutPayload({ ...workout, remoteId: created._id });
   }
 
   const remoteId = workout.remoteId ?? queuedRemoteId;
   if (!remoteId) {
     const created = await createWorkout(token, workout);
     await setEntityRemoteIdAndSynced('workout', workout.id, created._id);
-    return serializeWorkoutForApi({ ...workout, remoteId: created._id });
+    return toBackendWorkoutPayload({ ...workout, remoteId: created._id });
   }
 
   try {
     await updateWorkout(token, remoteId, workout);
     await setEntitySynced('workout', workout.id);
-    return serializeWorkoutForApi({ ...workout, remoteId });
+    return toBackendWorkoutPayload({ ...workout, remoteId });
   } catch (error) {
     if (!isNotFoundError(error)) {
       throw error;
@@ -643,20 +556,20 @@ async function processPlanQueueItem(
   if (item.operation === 'create') {
     const created = await createPlan(token, plan);
     await setEntityRemoteIdAndSynced('plan', plan.id, created._id);
-    return serializePlanForApi({ ...plan, remoteId: created._id });
+    return toBackendPlanPayload({ ...plan, remoteId: created._id });
   }
 
   const remoteId = plan.remoteId ?? queuedRemoteId;
   if (!remoteId) {
     const created = await createPlan(token, plan);
     await setEntityRemoteIdAndSynced('plan', plan.id, created._id);
-    return serializePlanForApi({ ...plan, remoteId: created._id });
+    return toBackendPlanPayload({ ...plan, remoteId: created._id });
   }
 
   try {
     await updatePlan(token, remoteId, plan);
     await setEntitySynced('plan', plan.id);
-    return serializePlanForApi({ ...plan, remoteId });
+    return toBackendPlanPayload({ ...plan, remoteId });
   } catch (error) {
     if (!isNotFoundError(error)) {
       throw error;
@@ -712,7 +625,7 @@ async function mergeDownloadedData(downloaded: {
   for (const remoteWorkout of downloaded.workouts ?? []) {
     const localRow = await getEntityRowByRemoteId('workout', remoteWorkout._id);
     const shouldApply =
-      !localRow || compareIso(toIso(remoteWorkout.updatedAt, ''), localRow.updatedAt) >= 0;
+      !localRow || compareIso(toIsoString(remoteWorkout.updatedAt, ''), localRow.updatedAt) >= 0;
 
     if (!shouldApply) {
       continue;
@@ -730,7 +643,7 @@ async function mergeDownloadedData(downloaded: {
 
   for (const remotePlan of downloaded.plans ?? []) {
     const localRow = await getEntityRowByRemoteId('plan', remotePlan._id);
-    const shouldApply = !localRow || compareIso(toIso(remotePlan.updatedAt, ''), localRow.updatedAt) >= 0;
+    const shouldApply = !localRow || compareIso(toIsoString(remotePlan.updatedAt, ''), localRow.updatedAt) >= 0;
 
     if (!shouldApply) {
       continue;

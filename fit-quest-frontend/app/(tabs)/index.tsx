@@ -55,7 +55,18 @@ import {
   updateProfile as apiUpdateProfile,
   updateWorkout as apiUpdateWorkout,
 } from '@/services/api';
+import {
+  isCompleteBackendExerciseDocument,
+  toBackendPlanPayload,
+  toBackendWorkoutPayload,
+  toLocalExerciseRecord,
+  toLocalPlanNormalized,
+  toLocalWorkoutNormalized,
+} from '@/services/syncMappers';
 import type {
+  BackendExerciseDocument,
+  BackendPlanDocument,
+  BackendWorkoutDocument,
   Exercise,
   PlanWithExercises,
   Plan,
@@ -1459,6 +1470,271 @@ export default function HomeScreen() {
     }
   };
 
+  const runSyncMappersSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    try {
+      const now = new Date().toISOString();
+
+      const localExercise: Exercise = {
+        id: 'local-ex-1',
+        remoteId: 'mongo-ex-1',
+        name: 'Mapper Exercise',
+        description: 'Used for mapper smoke test',
+        category: 'legs',
+        primaryMuscle: 'quadriceps',
+        otherMuscles: ['glutes'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Step 1', 'Step 2'],
+        isCustom: true,
+        userId: 'local-user-1',
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const localWorkout: WorkoutWithExercises = {
+        id: 'local-workout-1',
+        remoteId: 'mongo-workout-1',
+        userId: 'local-user-1',
+        date: now,
+        name: 'Mapper Workout',
+        notes: 'Mapper payload test',
+        sourcePlanId: 'local-plan-1',
+        sourcePlanRemoteId: 'mongo-plan-1',
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: 'local-we-1',
+            workoutId: 'local-workout-1',
+            exerciseId: localExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: localExercise,
+            sets: [
+              {
+                id: 'local-ws-1',
+                workoutExerciseId: 'local-we-1',
+                reps: 8,
+                weight: 60,
+                orderIndex: 0,
+                createdAt: now,
+              },
+            ],
+          },
+        ],
+      };
+
+      const localPlan: PlanWithExercises = {
+        id: 'local-plan-1',
+        remoteId: 'mongo-plan-1',
+        userId: 'local-user-1',
+        name: 'Mapper Plan',
+        plannedDate: now,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: 'local-pe-1',
+            planId: 'local-plan-1',
+            exerciseId: localExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: localExercise,
+            sets: [
+              {
+                id: 'local-ps-1',
+                planExerciseId: 'local-pe-1',
+                reps: 10,
+                weight: 50,
+                orderIndex: 0,
+                createdAt: now,
+              },
+            ],
+          },
+        ],
+      };
+
+      const workoutPayload = toBackendWorkoutPayload(localWorkout) as {
+        _id?: string;
+        sourcePlan?: string;
+        exercises: Array<{ exercise: string; sets: Array<{ reps?: number }> }>;
+      };
+      const planPayload = toBackendPlanPayload(localPlan) as {
+        _id?: string;
+        exercises: Array<{ exercise: string; sets: Array<{ reps?: number }> }>;
+      };
+
+      if (
+        workoutPayload._id !== 'mongo-workout-1' ||
+        workoutPayload.sourcePlan !== 'mongo-plan-1' ||
+        workoutPayload.exercises[0]?.exercise !== 'mongo-ex-1' ||
+        workoutPayload.exercises[0]?.sets[0]?.reps !== 8 ||
+        planPayload._id !== 'mongo-plan-1' ||
+        planPayload.exercises[0]?.exercise !== 'mongo-ex-1' ||
+        planPayload.exercises[0]?.sets[0]?.reps !== 10
+      ) {
+        throw new Error(
+          `Local -> backend mapping mismatch. workoutPayload=${formatValue(workoutPayload)} planPayload=${formatValue(
+            planPayload
+          )}`
+        );
+      }
+
+      appendResult({
+        label: 'Step 1: local -> backend payload mapping',
+        status: 'pass',
+        details: 'Workout/plan nested payload mapping and _id/remoteId translation succeeded.',
+      });
+
+      const backendExercise: BackendExerciseDocument = {
+        _id: 'mongo-ex-1',
+        name: 'Backend Squat',
+        description: 'Backend exercise doc',
+        category: 'legs',
+        primaryMuscle: 'quadriceps',
+        otherMuscles: ['glutes'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Brace', 'Descend', 'Stand'],
+        isCustom: true,
+        user: 'mongo-user-1',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const localExerciseMapped = toLocalExerciseRecord(backendExercise, {
+        existingLocalId: 'local-ex-keep',
+        nowIso: now,
+        idFactory: () => 'local-ex-generated',
+      });
+
+      const partialExercise = { _id: 'mongo-partial', name: 'Partial Exercise' };
+      if (!isCompleteBackendExerciseDocument(backendExercise) || isCompleteBackendExerciseDocument(partialExercise)) {
+        throw new Error('Exercise completeness guard failed for complete/partial backend exercise documents.');
+      }
+
+      if (localExerciseMapped.id !== 'local-ex-keep' || localExerciseMapped.remoteId !== 'mongo-ex-1') {
+        throw new Error(`Backend exercise -> local mapping mismatch: ${formatValue(localExerciseMapped)}`);
+      }
+
+      appendResult({
+        label: 'Step 2: backend exercise normalization',
+        status: 'pass',
+        details: 'Backend exercise normalization preserves local id and remoteId translation.',
+      });
+
+      const backendWorkout: BackendWorkoutDocument = {
+        _id: 'mongo-workout-1',
+        user: 'mongo-user-1',
+        date: now,
+        name: 'Backend Workout',
+        notes: 'Backend workout doc',
+        sourcePlan: 'mongo-plan-1',
+        exercises: [
+          {
+            exercise: 'mongo-ex-1',
+            sets: [{ reps: 5, weight: 100 }],
+          },
+          {
+            exercise: 'mongo-ex-missing',
+            sets: [{ reps: 12 }],
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const backendPlan: BackendPlanDocument = {
+        _id: 'mongo-plan-1',
+        user: 'mongo-user-1',
+        name: 'Backend Plan',
+        plannedDate: now,
+        exercises: [
+          {
+            exercise: 'mongo-ex-1',
+            sets: [{ reps: 8, weight: 80 }],
+          },
+          {
+            exercise: 'mongo-ex-missing',
+            sets: [{ reps: 15 }],
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      let idCounter = 0;
+      const deterministicId = () => `generated-id-${++idCounter}`;
+
+      const localWorkoutMapped = toLocalWorkoutNormalized(backendWorkout, {
+        fallbackUserId: 'local-user-1',
+        existingLocalWorkoutId: 'local-workout-keep',
+        sourcePlanLocalId: 'local-plan-keep',
+        resolveLocalExerciseId: (remoteExerciseId) => (remoteExerciseId === 'mongo-ex-1' ? 'local-ex-keep' : undefined),
+        nowIso: now,
+        idFactory: deterministicId,
+      });
+
+      const localPlanMapped = toLocalPlanNormalized(backendPlan, {
+        fallbackUserId: 'local-user-1',
+        existingLocalPlanId: 'local-plan-keep',
+        resolveLocalExerciseId: (remoteExerciseId) => (remoteExerciseId === 'mongo-ex-1' ? 'local-ex-keep' : undefined),
+        nowIso: now,
+        idFactory: deterministicId,
+      });
+
+      if (
+        localWorkoutMapped.workout.id !== 'local-workout-keep' ||
+        localWorkoutMapped.workout.remoteId !== 'mongo-workout-1' ||
+        localWorkoutMapped.workout.sourcePlanId !== 'local-plan-keep' ||
+        localWorkoutMapped.exercises.length !== 1 ||
+        localWorkoutMapped.sets.length !== 1 ||
+        localWorkoutMapped.unresolvedExerciseRemoteIds[0] !== 'mongo-ex-missing' ||
+        localPlanMapped.plan.id !== 'local-plan-keep' ||
+        localPlanMapped.plan.remoteId !== 'mongo-plan-1' ||
+        localPlanMapped.exercises.length !== 1 ||
+        localPlanMapped.sets.length !== 1 ||
+        localPlanMapped.unresolvedExerciseRemoteIds[0] !== 'mongo-ex-missing'
+      ) {
+        throw new Error(
+          `Backend -> local normalized mapping mismatch. workout=${formatValue(localWorkoutMapped)} plan=${formatValue(
+            localPlanMapped
+          )}`
+        );
+      }
+
+      appendResult({
+        label: 'Step 3: backend -> normalized local mapping',
+        status: 'pass',
+        details: 'Workout/plan normalization preserved local IDs, remoteIds, nested rows, and unresolved remote exercise tracking.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 3.3 passed. syncMappers pure translation functions are centralized and preserve local/remote identity mapping.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const runExerciseSmokeTest = async () => {
     setResults([]);
     setIsRunning(true);
@@ -1641,6 +1917,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 2.5: Sync queue add/get/mark/clear/count + dedupe collapse</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.1: API auth/exercises/plans/workouts/sync endpoint coverage</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.2: performSync queue processing + reconciliation + summary + soft-delete fallback</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 3.3: syncMappers pure translation utilities (local to backend, _id to remoteId)</Text>
       </View>
 
       <View className="gap-3">
@@ -1726,6 +2003,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 3.2 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-blue-900' : 'bg-blue-700'}`}
+          disabled={isRunning}
+          onPress={runSyncMappersSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 3.3 Test'}
             </Text>
           </View>
         </Pressable>
