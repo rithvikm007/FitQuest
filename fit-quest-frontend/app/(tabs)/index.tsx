@@ -26,6 +26,13 @@ import {
   searchPlans,
   updatePlan,
 } from '@/services/db/planDbService';
+import {
+  addToSyncQueue,
+  clearSyncedItems,
+  getPendingCount,
+  getSyncQueue,
+  markSynced,
+} from '@/services/db/syncQueueService';
 import type {
   Exercise,
   Plan,
@@ -575,6 +582,149 @@ export default function HomeScreen() {
     }
   };
 
+  const runSyncQueueSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'SQLite smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    try {
+      await initDatabase();
+      const db = getDatabase();
+      await db.runAsync('DELETE FROM sync_queue;');
+
+      appendResult({
+        label: 'Step 1: clear sync_queue',
+        status: 'pass',
+        details: 'sync_queue table cleared.',
+      });
+
+      await addToSyncQueue('workout', 'local-w1', 'create', {
+        id: 'local-w1',
+        remoteId: 'mongo-w1',
+        name: 'Workout 1',
+      });
+
+      let queue = await getSyncQueue();
+      let pendingCount = await getPendingCount();
+
+      if (queue.length !== 1 || pendingCount !== 1) {
+        throw new Error(`Expected queue=1/pending=1, got queue=${queue.length}, pending=${pendingCount}`);
+      }
+
+      appendResult({
+        label: 'Step 2: add create',
+        status: 'pass',
+        details: `Queue length=${queue.length}, pending=${pendingCount}, operation=${queue[0].operation}`,
+      });
+
+      await addToSyncQueue('workout', 'local-w1', 'update', {
+        id: 'local-w1',
+        notes: 'updated notes',
+      });
+
+      queue = await getSyncQueue();
+      if (queue.length !== 1 || queue[0].operation !== 'create') {
+        throw new Error(`Expected collapsed create item, got: ${formatValue(queue)}`);
+      }
+
+      const payloadAfterUpdate = JSON.parse(queue[0].payload) as { notes?: string; remoteId?: string | null };
+      if (payloadAfterUpdate.notes !== 'updated notes' || payloadAfterUpdate.remoteId !== 'mongo-w1') {
+        throw new Error(`Expected merged payload with notes+remoteId, got: ${formatValue(payloadAfterUpdate)}`);
+      }
+
+      appendResult({
+        label: 'Step 3: collapse create+update',
+        status: 'pass',
+        details: `Queue still has 1 create row with merged payload.`,
+      });
+
+      await addToSyncQueue('workout', 'local-w1', 'delete', { id: 'local-w1', remoteId: 'mongo-w1' });
+      queue = await getSyncQueue();
+      pendingCount = await getPendingCount();
+
+      if (queue.length !== 0 || pendingCount !== 0) {
+        throw new Error(`Expected net no-op queue=0/pending=0 after create+delete, got queue=${queue.length}, pending=${pendingCount}`);
+      }
+
+      appendResult({
+        label: 'Step 4: collapse create+delete',
+        status: 'pass',
+        details: 'Create then delete for same entity correctly removed pending row.',
+      });
+
+      await addToSyncQueue('plan', 'local-p1', 'update', {
+        id: 'local-p1',
+        remoteId: 'mongo-p1',
+        name: 'Plan 1',
+      });
+      await addToSyncQueue('plan', 'local-p1', 'delete', {
+        id: 'local-p1',
+        remoteId: 'mongo-p1',
+      });
+
+      queue = await getSyncQueue();
+      if (queue.length !== 1 || queue[0].operation !== 'delete') {
+        throw new Error(`Expected single delete row after update+delete, got: ${formatValue(queue)}`);
+      }
+
+      appendResult({
+        label: 'Step 5: collapse update+delete',
+        status: 'pass',
+        details: `Queue has one delete row for local-p1 as expected.`,
+      });
+
+      await markSynced(queue[0].id);
+      queue = await getSyncQueue();
+      pendingCount = await getPendingCount();
+
+      if (queue.length !== 0 || pendingCount !== 0) {
+        throw new Error(`Expected queue=0/pending=0 after markSynced, got queue=${queue.length}, pending=${pendingCount}`);
+      }
+
+      appendResult({
+        label: 'Step 6: markSynced',
+        status: 'pass',
+        details: 'Pending row marked as synced and removed from getSyncQueue().',
+      });
+
+      await clearSyncedItems();
+      const allRows = await db.getAllAsync<{ count: number }>('SELECT COUNT(*) as count FROM sync_queue;');
+      if ((allRows[0]?.count ?? 0) !== 0) {
+        throw new Error(`Expected sync_queue table to be empty after clearSyncedItems, got count=${allRows[0]?.count ?? 0}`);
+      }
+
+      appendResult({
+        label: 'Step 7: clearSyncedItems',
+        status: 'pass',
+        details: 'Synced rows purged successfully.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 2.5 passed. Queue add/get/mark/clear/count and operation collapsing verified.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const runExerciseSmokeTest = async () => {
     setResults([]);
     setIsRunning(true);
@@ -754,6 +904,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 2.2: Exercise CRUD + JSON parse/stringify + filters/search + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.3: Workout CRUD + transactions + nested join + pagination + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.4: Plan CRUD + transactions + nested join + pagination + soft delete</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 2.5: Sync queue add/get/mark/clear/count + dedupe collapse</Text>
       </View>
 
       <View className="gap-3">
@@ -803,6 +954,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 2.4 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-emerald-900' : 'bg-emerald-700'}`}
+          disabled={isRunning}
+          onPress={runSyncQueueSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 2.5 Test'}
             </Text>
           </View>
         </Pressable>
