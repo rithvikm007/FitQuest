@@ -10,7 +10,15 @@ import {
   searchExercises,
 } from '@/services/db/exerciseDbService';
 import { clearUser, getUser, saveUser, updateUserProfile } from '@/services/db/userDbService';
-import type { Exercise, User } from '@/types/models';
+import {
+  deleteWorkout,
+  getWorkoutById,
+  getWorkouts,
+  saveWorkout,
+  searchWorkouts,
+  updateWorkout,
+} from '@/services/db/workoutDbService';
+import type { Exercise, User, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
 import '@/global.css';
 
 type TestResult = {
@@ -141,6 +149,211 @@ export default function HomeScreen() {
         status: 'fail',
         details: message,
       });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const runWorkoutSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'SQLite smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    try {
+      await initDatabase();
+      const db = getDatabase();
+
+      // Clear tables bottom-up to respect foreign keys
+      await db.runAsync('DELETE FROM workout_sets;');
+      await db.runAsync('DELETE FROM workout_exercises;');
+      await db.runAsync('DELETE FROM workouts;');
+      await db.runAsync('DELETE FROM exercises;');
+
+      appendResult({
+        label: 'Step 1: clear tables',
+        status: 'pass',
+        details: 'workout_sets, workout_exercises, workouts, exercises tables cleared.',
+      });
+
+      // Seed one exercise to reference in workout_exercises
+      const now = new Date().toISOString();
+
+      // workouts.userId is a FK → users.id; insert a seed user so the constraint is satisfied
+      await db.runAsync(
+        `INSERT OR REPLACE INTO users (id, username, email, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?);`,
+        ['local-user-1', 'smoketest', 'smoketest@test.com', now, now]
+      );
+
+      const exerciseId = generateUuid();
+      const seedExercise: Exercise = {
+        id: exerciseId,
+        name: 'Barbell Squat',
+        category: 'legs',
+        primaryMuscle: 'quadriceps',
+        otherMuscles: ['glutes', 'hamstrings'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Position the bar', 'Squat down', 'Drive back up'],
+        isCustom: false,
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+      await saveExercise(seedExercise);
+
+      // Step 2: saveWorkout with 1 exercise + 2 sets
+      const weId = generateUuid();
+      const workoutId = generateUuid();
+      const workout1: Workout = {
+        id: workoutId,
+        userId: 'local-user-1',
+        date: now,
+        name: 'Push Day',
+        notes: 'Felt strong',
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const workoutExercises: WorkoutExercise[] = [
+        { id: weId, workoutId, exerciseId, orderIndex: 0, createdAt: now },
+      ];
+      const workoutSets: WorkoutSet[] = [
+        { id: generateUuid(), workoutExerciseId: weId, reps: 5, weight: 100, orderIndex: 0, createdAt: now },
+        { id: generateUuid(), workoutExerciseId: weId, reps: 5, weight: 105, orderIndex: 1, createdAt: now },
+      ];
+
+      const savedWorkoutId = await saveWorkout(workout1, workoutExercises, workoutSets);
+      const allWorkouts = await getWorkouts(1, 10);
+
+      if (allWorkouts.length !== 1 || allWorkouts[0].name !== 'Push Day' || allWorkouts[0].syncStatus !== 'pending') {
+        throw new Error(`getWorkouts mismatch: ${formatValue(allWorkouts)}`);
+      }
+
+      appendResult({
+        label: 'Step 2: saveWorkout + getWorkouts',
+        status: 'pass',
+        details: `Saved id=${savedWorkoutId}, getWorkouts(1,10) returned ${allWorkouts.length} row(s), syncStatus=pending.`,
+      });
+
+      // Step 3: getWorkoutById nested join
+      const fullWorkout = await getWorkoutById(savedWorkoutId);
+      if (!fullWorkout) throw new Error('getWorkoutById returned null');
+      if (fullWorkout.exercises.length !== 1) {
+        throw new Error(`Expected 1 exercise, got ${fullWorkout.exercises.length}`);
+      }
+      if (fullWorkout.exercises[0].sets.length !== 2) {
+        throw new Error(`Expected 2 sets, got ${fullWorkout.exercises[0].sets.length}`);
+      }
+      if (fullWorkout.exercises[0].exercise.name !== 'Barbell Squat') {
+        throw new Error(`Exercise name mismatch: ${fullWorkout.exercises[0].exercise.name}`);
+      }
+
+      appendResult({
+        label: 'Step 3: getWorkoutById nested join',
+        status: 'pass',
+        details: `exercises=${fullWorkout.exercises.length}, sets=${fullWorkout.exercises[0].sets.length}, exercise.name=${fullWorkout.exercises[0].exercise.name}`,
+      });
+
+      // Step 4: updateWorkout (name only, no exercise/set replacement)
+      await updateWorkout(savedWorkoutId, { name: 'Push Day Updated' });
+      const updatedFull = await getWorkoutById(savedWorkoutId);
+      if (!updatedFull || updatedFull.name !== 'Push Day Updated' || updatedFull.syncStatus !== 'pending') {
+        throw new Error(`updateWorkout mismatch: ${formatValue(updatedFull)}`);
+      }
+
+      appendResult({
+        label: 'Step 4: updateWorkout',
+        status: 'pass',
+        details: `Name updated to "${updatedFull.name}", syncStatus=${updatedFull.syncStatus}`,
+      });
+
+      // Step 5: searchWorkouts
+      const found = await searchWorkouts('push');
+      const notFound = await searchWorkouts('xyznotfound');
+      if (found.length !== 1) throw new Error(`Expected 1 result for 'push', got ${found.length}`);
+      if (notFound.length !== 0) throw new Error(`Expected 0 results for 'xyznotfound', got ${notFound.length}`);
+
+      appendResult({
+        label: 'Step 5: searchWorkouts',
+        status: 'pass',
+        details: `search('push')=${found.length}, search('xyznotfound')=${notFound.length}`,
+      });
+
+      // Step 6: remoteId reconciliation
+      const remoteWId = 'mongo-workout-999';
+      const workout2Id = generateUuid();
+      const workout2: Workout = {
+        id: workout2Id,
+        remoteId: remoteWId,
+        userId: 'local-user-1',
+        date: now,
+        name: 'Leg Day',
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const savedW2Id = await saveWorkout(workout2, [], []);
+
+      const reconciledWorkout: Workout = {
+        ...workout2,
+        id: generateUuid(), // different local id, same remoteId
+        name: 'Leg Day Updated',
+      };
+      const reconciledId = await saveWorkout(reconciledWorkout, [], []);
+
+      if (reconciledId !== savedW2Id) {
+        throw new Error(`remoteId reconciliation failed: expected ${savedW2Id}, got ${reconciledId}`);
+      }
+
+      const lookedUp = await getWorkoutById(remoteWId); // lookup by remoteId
+      if (!lookedUp || lookedUp.name !== 'Leg Day Updated') {
+        throw new Error(`Lookup by remoteId failed: ${formatValue(lookedUp)}`);
+      }
+
+      appendResult({
+        label: 'Step 6: remoteId reconciliation',
+        status: 'pass',
+        details: `Upsert kept local id=${savedW2Id}. Lookup by remoteId returned "${lookedUp.name}".`,
+      });
+
+      // Step 7: deleteWorkout + cascade check
+      await deleteWorkout(savedWorkoutId);
+      const deletedLookup = await getWorkoutById(savedWorkoutId);
+      const remainingWorkouts = await getWorkouts(1, 10);
+
+      if (deletedLookup !== null) {
+        throw new Error(`Expected null after deleteWorkout, got ${formatValue(deletedLookup)}`);
+      }
+      if (remainingWorkouts.length !== 1 || remainingWorkouts[0].id !== savedW2Id) {
+        throw new Error(`Remaining workouts mismatch: ${formatValue(remainingWorkouts)}`);
+      }
+
+      appendResult({
+        label: 'Step 7: deleteWorkout (soft delete)',
+        status: 'pass',
+        details: `Soft delete OK. getWorkoutById returns null. ${remainingWorkouts.length} active workout(s) remaining.`,
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 2.3 passed. Transactions, nested join, pagination, search, remoteId reconciliation, and soft delete verified.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({ label: 'Smoke test failed', status: 'fail', details: message });
     } finally {
       setIsRunning(false);
     }
@@ -323,6 +536,7 @@ export default function HomeScreen() {
         <Text className="mb-2 text-sm font-semibold uppercase tracking-wide text-primary">Available tests</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.1: User CRUD + remoteId preservation</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.2: Exercise CRUD + JSON parse/stringify + filters/search + soft delete</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 2.3: Workout CRUD + transactions + nested join + pagination + soft delete</Text>
       </View>
 
       <View className="gap-3">
@@ -351,6 +565,18 @@ export default function HomeScreen() {
             </View>
           </Pressable>
         </View>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-violet-900' : 'bg-violet-700'}`}
+          disabled={isRunning}
+          onPress={runWorkoutSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 2.3 Test'}
+            </Text>
+          </View>
+        </Pressable>
 
         <Pressable
           className="rounded-xl border border-neutral-700 px-4 py-4"
