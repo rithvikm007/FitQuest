@@ -18,7 +18,24 @@ import {
   searchWorkouts,
   updateWorkout,
 } from '@/services/db/workoutDbService';
-import type { Exercise, User, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
+import {
+  deletePlan,
+  getPlanById,
+  getPlans,
+  savePlan,
+  searchPlans,
+  updatePlan,
+} from '@/services/db/planDbService';
+import type {
+  Exercise,
+  Plan,
+  PlanExercise,
+  PlanSet,
+  User,
+  Workout,
+  WorkoutExercise,
+  WorkoutSet,
+} from '@/types/models';
 import '@/global.css';
 
 type TestResult = {
@@ -359,6 +376,205 @@ export default function HomeScreen() {
     }
   };
 
+  const runPlanSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'SQLite smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    try {
+      await initDatabase();
+      const db = getDatabase();
+
+      // Clear dependent tables first to satisfy foreign key constraints.
+      await db.runAsync('DELETE FROM workout_sets;');
+      await db.runAsync('DELETE FROM workout_exercises;');
+      await db.runAsync('DELETE FROM workouts;');
+      await db.runAsync('DELETE FROM plan_sets;');
+      await db.runAsync('DELETE FROM plan_exercises;');
+      await db.runAsync('DELETE FROM plans;');
+      await db.runAsync('DELETE FROM exercises;');
+
+      appendResult({
+        label: 'Step 1: clear tables',
+        status: 'pass',
+        details: 'workout_sets, workout_exercises, workouts, plan_sets, plan_exercises, plans, exercises tables cleared.',
+      });
+
+      const now = new Date().toISOString();
+      await db.runAsync(
+        `INSERT OR REPLACE INTO users (id, username, email, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?);`,
+        ['local-user-1', 'smoketest', 'smoketest@test.com', now, now]
+      );
+
+      const exerciseId = generateUuid();
+      const seedExercise: Exercise = {
+        id: exerciseId,
+        name: 'Romanian Deadlift',
+        category: 'legs',
+        primaryMuscle: 'hamstrings',
+        otherMuscles: ['glutes', 'lower back'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Hinge at hips', 'Lower bar down legs', 'Stand back up'],
+        isCustom: false,
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+      await saveExercise(seedExercise);
+
+      const planId = generateUuid();
+      const planExerciseId = generateUuid();
+      const planA: Plan = {
+        id: planId,
+        userId: 'local-user-1',
+        name: 'Lower Body A',
+        plannedDate: now,
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const planExercises: PlanExercise[] = [
+        { id: planExerciseId, planId, exerciseId, orderIndex: 0, createdAt: now },
+      ];
+
+      const planSets: PlanSet[] = [
+        { id: generateUuid(), planExerciseId, reps: 8, weight: 80, orderIndex: 0, createdAt: now },
+        { id: generateUuid(), planExerciseId, reps: 8, weight: 85, orderIndex: 1, createdAt: now },
+      ];
+
+      const savedPlanId = await savePlan(planA, planExercises, planSets);
+      const allPlans = await getPlans(1, 10);
+
+      if (allPlans.length !== 1 || allPlans[0].name !== 'Lower Body A' || allPlans[0].syncStatus !== 'pending') {
+        throw new Error(`getPlans mismatch: ${formatValue(allPlans)}`);
+      }
+
+      appendResult({
+        label: 'Step 2: savePlan + getPlans',
+        status: 'pass',
+        details: `Saved id=${savedPlanId}, getPlans(1,10) returned ${allPlans.length} row(s), syncStatus=pending.`,
+      });
+
+      const fullPlan = await getPlanById(savedPlanId);
+      if (!fullPlan) throw new Error('getPlanById returned null');
+      if (fullPlan.exercises.length !== 1) {
+        throw new Error(`Expected 1 exercise, got ${fullPlan.exercises.length}`);
+      }
+      if (fullPlan.exercises[0].sets.length !== 2) {
+        throw new Error(`Expected 2 sets, got ${fullPlan.exercises[0].sets.length}`);
+      }
+      if (fullPlan.exercises[0].exercise.name !== 'Romanian Deadlift') {
+        throw new Error(`Exercise name mismatch: ${fullPlan.exercises[0].exercise.name}`);
+      }
+
+      appendResult({
+        label: 'Step 3: getPlanById nested join',
+        status: 'pass',
+        details: `exercises=${fullPlan.exercises.length}, sets=${fullPlan.exercises[0].sets.length}, exercise.name=${fullPlan.exercises[0].exercise.name}`,
+      });
+
+      await updatePlan(savedPlanId, { name: 'Lower Body A Updated' });
+      const updatedPlan = await getPlanById(savedPlanId);
+      if (!updatedPlan || updatedPlan.name !== 'Lower Body A Updated' || updatedPlan.syncStatus !== 'pending') {
+        throw new Error(`updatePlan mismatch: ${formatValue(updatedPlan)}`);
+      }
+
+      appendResult({
+        label: 'Step 4: updatePlan',
+        status: 'pass',
+        details: `Name updated to "${updatedPlan.name}", syncStatus=${updatedPlan.syncStatus}`,
+      });
+
+      const found = await searchPlans('lower');
+      const notFound = await searchPlans('xyznotfound');
+      if (found.length !== 1) throw new Error(`Expected 1 result for 'lower', got ${found.length}`);
+      if (notFound.length !== 0) throw new Error(`Expected 0 results for 'xyznotfound', got ${notFound.length}`);
+
+      appendResult({
+        label: 'Step 5: searchPlans',
+        status: 'pass',
+        details: `search('lower')=${found.length}, search('xyznotfound')=${notFound.length}`,
+      });
+
+      const remotePlanId = 'mongo-plan-555';
+      const planB: Plan = {
+        id: generateUuid(),
+        remoteId: remotePlanId,
+        userId: 'local-user-1',
+        name: 'Upper Body B',
+        plannedDate: new Date(Date.now() + 86_400_000).toISOString(),
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const savedPlanBId = await savePlan(planB, [], []);
+      const reconciledPlan: Plan = {
+        ...planB,
+        id: generateUuid(),
+        name: 'Upper Body B Updated',
+      };
+      const reconciledId = await savePlan(reconciledPlan, [], []);
+
+      if (reconciledId !== savedPlanBId) {
+        throw new Error(`remoteId reconciliation failed: expected ${savedPlanBId}, got ${reconciledId}`);
+      }
+
+      const lookupByRemote = await getPlanById(remotePlanId);
+      if (!lookupByRemote || lookupByRemote.name !== 'Upper Body B Updated') {
+        throw new Error(`Lookup by remoteId failed: ${formatValue(lookupByRemote)}`);
+      }
+
+      appendResult({
+        label: 'Step 6: remoteId reconciliation',
+        status: 'pass',
+        details: `Upsert kept local id=${savedPlanBId}. Lookup by remoteId returned "${lookupByRemote.name}".`,
+      });
+
+      await deletePlan(savedPlanId);
+      const deletedLookup = await getPlanById(savedPlanId);
+      const remainingPlans = await getPlans(1, 10);
+
+      if (deletedLookup !== null) {
+        throw new Error(`Expected null after deletePlan, got ${formatValue(deletedLookup)}`);
+      }
+      if (remainingPlans.length !== 1 || remainingPlans[0].id !== savedPlanBId) {
+        throw new Error(`Remaining plans mismatch: ${formatValue(remainingPlans)}`);
+      }
+
+      appendResult({
+        label: 'Step 7: deletePlan (soft delete)',
+        status: 'pass',
+        details: `Soft delete OK. getPlanById returns null. ${remainingPlans.length} active plan(s) remaining.`,
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 2.4 passed. Transactions, nested join, pagination, search, remoteId reconciliation, and soft delete verified.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({ label: 'Smoke test failed', status: 'fail', details: message });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const runExerciseSmokeTest = async () => {
     setResults([]);
     setIsRunning(true);
@@ -537,6 +753,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 2.1: User CRUD + remoteId preservation</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.2: Exercise CRUD + JSON parse/stringify + filters/search + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.3: Workout CRUD + transactions + nested join + pagination + soft delete</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 2.4: Plan CRUD + transactions + nested join + pagination + soft delete</Text>
       </View>
 
       <View className="gap-3">
@@ -574,6 +791,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 2.3 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-cyan-900' : 'bg-cyan-700'}`}
+          disabled={isRunning}
+          onPress={runPlanSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 2.4 Test'}
             </Text>
           </View>
         </Pressable>
