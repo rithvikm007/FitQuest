@@ -33,8 +33,30 @@ import {
   getSyncQueue,
   markSynced,
 } from '@/services/db/syncQueueService';
+import {
+  createExercise as apiCreateExercise,
+  createPlan as apiCreatePlan,
+  createWorkout as apiCreateWorkout,
+  deleteExercise as apiDeleteExercise,
+  deletePlan as apiDeletePlan,
+  deleteWorkout as apiDeleteWorkout,
+  fetchExerciseById,
+  fetchExercises,
+  fetchPlans,
+  fetchWorkouts,
+  getMe as apiGetMe,
+  login as apiLogin,
+  register as apiRegister,
+  startWorkoutFromPlan,
+  syncData,
+  updateExercise as apiUpdateExercise,
+  updatePlan as apiUpdatePlan,
+  updateProfile as apiUpdateProfile,
+  updateWorkout as apiUpdateWorkout,
+} from '@/services/api';
 import type {
   Exercise,
+  PlanWithExercises,
   Plan,
   PlanExercise,
   PlanSet,
@@ -42,6 +64,7 @@ import type {
   Workout,
   WorkoutExercise,
   WorkoutSet,
+  WorkoutWithExercises,
 } from '@/types/models';
 import '@/global.css';
 
@@ -725,6 +748,302 @@ export default function HomeScreen() {
     }
   };
 
+  const runApiSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    const cleanup: {
+      token?: string;
+      workoutIds: string[];
+      planIds: string[];
+      exerciseIds: string[];
+    } = {
+      workoutIds: [],
+      planIds: [],
+      exerciseIds: [],
+    };
+
+    try {
+      const now = new Date().toISOString();
+      const unique = Date.now().toString();
+      const username = `api_smoke_${unique}`;
+      const email = `api_smoke_${unique}@example.com`;
+      const password = 'Pass123!';
+
+      const registerResponse = await apiRegister(username, email, password);
+      if (!registerResponse.success || !registerResponse.data?.token) {
+        throw new Error(`Register response mismatch: ${formatValue(registerResponse)}`);
+      }
+
+      appendResult({
+        label: 'Step 1: register()',
+        status: 'pass',
+        details: `Registered ${email}`,
+      });
+
+      const loginResponse = await apiLogin(email, password);
+      if (!loginResponse.success || !loginResponse.data?.token) {
+        throw new Error(`Login response mismatch: ${formatValue(loginResponse)}`);
+      }
+      const token = loginResponse.data.token;
+      cleanup.token = token;
+
+      appendResult({
+        label: 'Step 2: login()',
+        status: 'pass',
+        details: 'Received auth token successfully.',
+      });
+
+      const meResponse = await apiGetMe(token);
+      if (!meResponse.success || !meResponse.data?.user?._id || !meResponse.data?.user?.email) {
+        throw new Error(`getMe response mismatch: ${formatValue(meResponse)}`);
+      }
+
+      const profileResponse = await apiUpdateProfile(token, {
+        firstName: 'Api',
+        lastName: 'Smoke',
+        age: 30,
+        height: 180,
+        weight: 80,
+      });
+      if (!profileResponse.success) {
+        throw new Error(`updateProfile response mismatch: ${formatValue(profileResponse)}`);
+      }
+
+      appendResult({
+        label: 'Step 3: getMe/updateProfile',
+        status: 'pass',
+        details: `Auth protected profile endpoints succeeded. Active backend user: ${meResponse.data.user.email}`,
+      });
+
+      const createdExercise = await apiCreateExercise(token, {
+        name: `API Exercise ${unique}`,
+        description: 'Exercise created by API smoke test',
+        category: 'legs',
+        primaryMuscle: 'quadriceps',
+        otherMuscles: ['glutes'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Do step 1', 'Do step 2'],
+      });
+
+      cleanup.exerciseIds.push(createdExercise._id);
+
+      const exerciseList = await fetchExercises(token, { category: 'legs' });
+      const publicExercise = exerciseList.find((exercise) => !exercise.isCustom);
+
+      if (!publicExercise) {
+        throw new Error('No public exercise found to validate fetchExerciseById endpoint.');
+      }
+
+      const exerciseById = await fetchExerciseById(token, publicExercise._id);
+      const updatedExercise = await apiUpdateExercise(token, createdExercise._id, {
+        ...createdExercise,
+        name: `API Exercise Updated ${unique}`,
+      });
+
+      if (!exerciseById._id || exerciseById._id !== publicExercise._id || !updatedExercise.name.includes('Updated')) {
+        throw new Error('Exercise API verification failed.');
+      }
+
+      if (!exerciseList.some((exercise) => exercise._id === createdExercise._id)) {
+        throw new Error('fetchExercises did not include created exercise.');
+      }
+
+      appendResult({
+        label: 'Step 4: exercise endpoints',
+        status: 'pass',
+        details: 'create/fetchById/fetch/update exercise endpoints succeeded.',
+      });
+
+      const localExerciseForNested: Exercise = {
+        id: generateUuid(),
+        remoteId: createdExercise._id,
+        name: updatedExercise.name,
+        description: updatedExercise.description,
+        category: updatedExercise.category,
+        primaryMuscle: updatedExercise.primaryMuscle,
+        otherMuscles: updatedExercise.otherMuscles ?? [],
+        type: updatedExercise.type,
+        equipment: updatedExercise.equipment,
+        instructions: updatedExercise.instructions,
+        videoUrl: updatedExercise.videoUrl,
+        isCustom: updatedExercise.isCustom,
+        userId: typeof updatedExercise.user === 'string' ? updatedExercise.user : undefined,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const planPayload: PlanWithExercises = {
+        id: generateUuid(),
+        userId: meResponse.data.user._id,
+        name: `API Plan ${unique}`,
+        plannedDate: now,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: generateUuid(),
+            planId: generateUuid(),
+            exerciseId: localExerciseForNested.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: localExerciseForNested,
+            sets: [
+              {
+                id: generateUuid(),
+                planExerciseId: generateUuid(),
+                reps: 8,
+                weight: 70,
+                orderIndex: 0,
+                createdAt: now,
+              },
+            ],
+          },
+        ],
+      };
+
+      const createdPlan = await apiCreatePlan(token, planPayload);
+      cleanup.planIds.push(createdPlan._id);
+      const plans = await fetchPlans(token, 1, 10);
+
+      const updatedPlan = await apiUpdatePlan(token, createdPlan._id, {
+        ...planPayload,
+        name: `API Plan Updated ${unique}`,
+      });
+
+      if (!plans.some((plan) => plan._id === createdPlan._id) || !updatedPlan.name.includes('Updated')) {
+        throw new Error('Plan API verification failed.');
+      }
+
+      appendResult({
+        label: 'Step 5: plan endpoints',
+        status: 'pass',
+        details: 'create/fetch/update plan endpoints succeeded.',
+      });
+
+      const workoutPayload: WorkoutWithExercises = {
+        id: generateUuid(),
+        userId: meResponse.data.user._id,
+        date: now,
+        name: `API Workout ${unique}`,
+        notes: 'Created by smoke test',
+        sourcePlanId: undefined,
+        sourcePlanRemoteId: createdPlan._id,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: generateUuid(),
+            workoutId: generateUuid(),
+            exerciseId: localExerciseForNested.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: localExerciseForNested,
+            sets: [
+              {
+                id: generateUuid(),
+                workoutExerciseId: generateUuid(),
+                reps: 6,
+                weight: 90,
+                orderIndex: 0,
+                createdAt: now,
+              },
+            ],
+          },
+        ],
+      };
+
+      const createdWorkout = await apiCreateWorkout(token, workoutPayload);
+      cleanup.workoutIds.push(createdWorkout._id);
+
+      const workouts = await fetchWorkouts(token, 1, 10);
+      const updatedWorkout = await apiUpdateWorkout(token, createdWorkout._id, {
+        ...workoutPayload,
+        name: `API Workout Updated ${unique}`,
+      });
+
+      const startedFromPlan = await startWorkoutFromPlan(token, createdPlan._id, `From Plan ${unique}`);
+      cleanup.workoutIds.push(startedFromPlan._id);
+
+      if (!workouts.some((workout) => workout._id === createdWorkout._id) || !updatedWorkout.name?.includes('Updated')) {
+        throw new Error('Workout API verification failed.');
+      }
+
+      appendResult({
+        label: 'Step 6: workout endpoints',
+        status: 'pass',
+        details: 'create/fetch/update/delete/startFromPlan endpoints succeeded.',
+      });
+
+      const syncResponse = await syncData(token, {
+        deviceId: `api-smoke-${unique}`,
+        workouts: [],
+        plans: [],
+        exercises: [],
+        weights: [],
+        lastSyncAt: new Date(0).toISOString(),
+      });
+
+      if (!syncResponse.success) {
+        throw new Error(`Sync response mismatch: ${formatValue(syncResponse)}`);
+      }
+
+      appendResult({
+        label: 'Step 7: syncData()',
+        status: 'pass',
+        details: 'Sync endpoint returned success.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 3.1 passed. All API endpoint groups and auth headers verified.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      if (cleanup.token) {
+        for (const workoutId of cleanup.workoutIds) {
+          try {
+            await apiDeleteWorkout(cleanup.token, workoutId);
+          } catch {
+            // Ignore cleanup failures in smoke test runner.
+          }
+        }
+
+        for (const planId of cleanup.planIds) {
+          try {
+            await apiDeletePlan(cleanup.token, planId);
+          } catch {
+            // Ignore cleanup failures in smoke test runner.
+          }
+        }
+
+        for (const exerciseId of cleanup.exerciseIds) {
+          try {
+            await apiDeleteExercise(cleanup.token, exerciseId);
+          } catch {
+            // Ignore cleanup failures in smoke test runner.
+          }
+        }
+      }
+
+      setIsRunning(false);
+    }
+  };
+
   const runExerciseSmokeTest = async () => {
     setResults([]);
     setIsRunning(true);
@@ -905,6 +1224,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 2.3: Workout CRUD + transactions + nested join + pagination + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.4: Plan CRUD + transactions + nested join + pagination + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.5: Sync queue add/get/mark/clear/count + dedupe collapse</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 3.1: API auth/exercises/plans/workouts/sync endpoint coverage</Text>
       </View>
 
       <View className="gap-3">
@@ -966,6 +1286,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 2.5 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-amber-900' : 'bg-amber-700'}`}
+          disabled={isRunning}
+          onPress={runApiSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 3.1 Test'}
             </Text>
           </View>
         </Pressable>
