@@ -1,103 +1,194 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet, Text, ScrollView } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
-import "@/global.css";
+import { clearUser, getUser, saveUser, updateUserProfile } from '@/services/db/userDbService';
+import type { User } from '@/types/models';
+import '@/global.css';
+
+type TestResult = {
+  label: string;
+  status: 'pass' | 'fail' | 'info';
+  details: string;
+};
+
+const seedUser: Partial<User> = {
+  username: 'fitquestdev',
+  email: 'fitquestdev@example.com',
+  remoteId: 'mongo-user-123',
+};
+
+function formatValue(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
 
 export default function HomeScreen() {
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}>
-      <Image
-        source={require('@/assets/images/partial-react-logo.png')}
-        style={styles.reactLogo}
-      />
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          <Text className='text-red-800'>Test</Text>
-          Edit <Text className='text-red-500'>app/(tabs)/index.tsx</Text> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [isRunning, setIsRunning] = useState(false);
+  const [results, setResults] = useState<TestResult[]>([]);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
+  const appendResult = (result: TestResult) => {
+    setResults((currentResults) => [...currentResults, result]);
+  };
+
+  const runSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'SQLite smoke test must be run on Android or iOS. Web uses a no-op database stub.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    try {
+      appendResult({
+        label: 'Step 1: clearUser()',
+        status: 'info',
+        details: 'Removing any previous local user row before starting the smoke test.',
+      });
+      await clearUser();
+
+      appendResult({
+        label: 'Step 2: saveUser()',
+        status: 'info',
+        details: `Saving seed user: ${formatValue(seedUser)}`,
+      });
+      await saveUser(seedUser);
+
+      const savedUser = await getUser();
+      if (!savedUser || savedUser.username !== seedUser.username || savedUser.remoteId !== seedUser.remoteId) {
+        throw new Error(`Saved user mismatch. Received: ${formatValue(savedUser)}`);
+      }
+
+      appendResult({
+        label: 'Step 3: getUser()',
+        status: 'pass',
+        details: `Loaded user successfully: ${formatValue(savedUser)}`,
+      });
+
+      await updateUserProfile({
+        firstName: 'Fit',
+        lastName: 'Quest',
+        age: 28,
+        height: 178,
+        weight: 76,
+      });
+
+      const updatedUser = await getUser();
+      const profileUpdated =
+        updatedUser?.firstName === 'Fit' &&
+        updatedUser?.lastName === 'Quest' &&
+        updatedUser?.age === 28 &&
+        updatedUser?.height === 178 &&
+        updatedUser?.weight === 76 &&
+        updatedUser?.remoteId === seedUser.remoteId;
+
+      if (!updatedUser || !profileUpdated) {
+        throw new Error(`Updated user mismatch. Received: ${formatValue(updatedUser)}`);
+      }
+
+      appendResult({
+        label: 'Step 4: updateUserProfile()',
+        status: 'pass',
+        details: `Profile updated correctly and remoteId preserved: ${formatValue(updatedUser)}`,
+      });
+
+      await clearUser();
+      const clearedUser = await getUser();
+
+      if (clearedUser !== null) {
+        throw new Error(`Expected null after clearUser(), received: ${formatValue(clearedUser)}`);
+      }
+
+      appendResult({
+        label: 'Step 5: clearUser()',
+        status: 'pass',
+        details: 'Local user row removed successfully. getUser() returned null.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details: 'Task 2.1 passed on this device. You can remove this test harness after verification.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 p-6">
+      <View className="gap-2">
+        <Text className="text-3xl font-bold text-white">Task 2.1 Smoke Test</Text>
+        <Text className="text-sm leading-6 text-neutral-300">
+          Run this on Android or iOS to verify saveUser, getUser, updateUserProfile, and clearUser.
+        </Text>
+      </View>
+
+      <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+        <Text className="mb-2 text-sm font-semibold uppercase tracking-wide text-primary">What it checks</Text>
+        <Text className="text-sm leading-6 text-neutral-200">1. Clears any old local user row.</Text>
+        <Text className="text-sm leading-6 text-neutral-200">2. Saves a seed user and verifies the row.</Text>
+        <Text className="text-sm leading-6 text-neutral-200">3. Updates profile fields and confirms remoteId is preserved.</Text>
+        <Text className="text-sm leading-6 text-neutral-200">4. Clears the user again and confirms getUser returns null.</Text>
+      </View>
+
+      <View className="flex-row gap-3">
+        <Pressable
+          className={`flex-1 rounded-xl px-4 py-4 ${isRunning ? 'bg-violet-300' : 'bg-primary'}`}
+          disabled={isRunning}
+          onPress={runSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 2.1 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className="rounded-xl border border-neutral-700 px-4 py-4"
+          disabled={isRunning}
+          onPress={() => setResults([])}>
+          <Text className="font-semibold text-neutral-200">Clear Log</Text>
+        </Pressable>
+      </View>
+
+      <View className="gap-3 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+        <Text className="text-lg font-semibold text-white">Results</Text>
+
+        {results.length === 0 ? (
+          <Text className="text-sm leading-6 text-neutral-400">
+            No results yet. Run the test and watch this panel for pass or fail details.
+          </Text>
+        ) : (
+          results.map((result, index) => {
+            const accentClass =
+              result.status === 'pass'
+                ? 'border-emerald-500 bg-emerald-500/10'
+                : result.status === 'fail'
+                  ? 'border-red-500 bg-red-500/10'
+                  : 'border-secondary bg-secondary/10';
+
+            return (
+              <View key={`${result.label}-${index}`} className={`gap-2 rounded-xl border p-3 ${accentClass}`}>
+                <Text className="font-semibold text-white">{result.label}</Text>
+                <Text className="text-xs leading-5 text-neutral-200">{result.details}</Text>
+              </View>
+            );
+          })
+        )}
+      </View>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: 16,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    marginBottom: 16,
-    alignSelf: 'center',
-  },
-});

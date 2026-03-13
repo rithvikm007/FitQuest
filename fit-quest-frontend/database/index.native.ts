@@ -9,6 +9,8 @@ import { runMigrations } from './migrations';
 const DATABASE_NAME = 'fitquest.db';
 
 let databaseInstance: SQLite.SQLiteDatabase | null = null;
+let initializationPromise: Promise<void> | null = null;
+let isInitialized = false;
 
 /**
  * Get the database instance (creates if doesn't exist)
@@ -28,23 +30,39 @@ export function getDatabase(): SQLite.SQLiteDatabase {
  * @returns Promise that resolves when database is ready
  */
 export async function initDatabase(): Promise<void> {
+  if (isInitialized) {
+    return;
+  }
+
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      try {
+        console.log('Initializing FitQuest database...');
+
+        // Get or create database instance
+        const db = getDatabase();
+
+        // Enable foreign keys (important for CASCADE deletes)
+        await db.execAsync('PRAGMA foreign_keys = ON;');
+        console.log('✓ Foreign keys enabled');
+
+        // Run all migrations
+        await runMigrations(db);
+
+        isInitialized = true;
+        console.log('✓ FitQuest database initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize database:', error);
+        throw new Error(`Database initialization failed: ${error}`);
+      }
+    })();
+  }
+
   try {
-    console.log('Initializing FitQuest database...');
-
-    // Get or create database instance
-    const db = getDatabase();
-
-    // Enable foreign keys (important for CASCADE deletes)
-    await db.execAsync('PRAGMA foreign_keys = ON;');
-    console.log('✓ Foreign keys enabled');
-
-    // Run all migrations
-    await runMigrations(db);
-
-    console.log('✓ FitQuest database initialized successfully');
+    await initializationPromise;
   } catch (error) {
-    console.error('Failed to initialize database:', error);
-    throw new Error(`Database initialization failed: ${error}`);
+    initializationPromise = null;
+    throw error;
   }
 }
 
@@ -57,6 +75,8 @@ export async function closeDatabase(): Promise<void> {
     try {
       await databaseInstance.closeAsync();
       databaseInstance = null;
+      initializationPromise = null;
+      isInitialized = false;
       console.log('✓ Database connection closed');
     } catch (error) {
       console.error('Error closing database:', error);
@@ -77,6 +97,8 @@ export async function resetDatabase(): Promise<void> {
       await databaseInstance.closeAsync();
       databaseInstance = null;
     }
+    initializationPromise = null;
+    isInitialized = false;
 
     // Delete the database file
     await SQLite.deleteDatabaseAsync(DATABASE_NAME);

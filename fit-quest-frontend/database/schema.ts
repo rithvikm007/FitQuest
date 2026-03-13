@@ -6,6 +6,7 @@
 export const CREATE_USERS_TABLE = `
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    remoteId TEXT,
     username TEXT NOT NULL,
     email TEXT NOT NULL,
     firstName TEXT,
@@ -14,6 +15,7 @@ export const CREATE_USERS_TABLE = `
     height REAL,
     weight REAL,
     createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
     lastSynced TEXT
   );
 `;
@@ -21,6 +23,7 @@ export const CREATE_USERS_TABLE = `
 export const CREATE_EXERCISES_TABLE = `
   CREATE TABLE IF NOT EXISTS exercises (
     id TEXT PRIMARY KEY,
+    remoteId TEXT,
     name TEXT NOT NULL,
     description TEXT,
     category TEXT NOT NULL,
@@ -42,11 +45,13 @@ export const CREATE_EXERCISES_TABLE = `
 export const CREATE_WORKOUTS_TABLE = `
   CREATE TABLE IF NOT EXISTS workouts (
     id TEXT PRIMARY KEY,
+    remoteId TEXT,
     userId TEXT NOT NULL,
     date TEXT NOT NULL,
     name TEXT,
     notes TEXT,
     sourcePlanId TEXT,
+    sourcePlanRemoteId TEXT,
     isDeleted INTEGER NOT NULL DEFAULT 0,
     syncStatus TEXT NOT NULL DEFAULT 'pending',
     createdAt TEXT NOT NULL,
@@ -86,6 +91,7 @@ export const CREATE_WORKOUT_SETS_TABLE = `
 export const CREATE_PLANS_TABLE = `
   CREATE TABLE IF NOT EXISTS plans (
     id TEXT PRIMARY KEY,
+    remoteId TEXT,
     userId TEXT NOT NULL,
     name TEXT NOT NULL,
     plannedDate TEXT,
@@ -138,20 +144,43 @@ export const CREATE_SYNC_QUEUE_TABLE = `
 
 // Index definitions for performance optimization
 export const CREATE_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_users_remote_id ON users(remoteId);',
+  'CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updatedAt);',
+  'CREATE INDEX IF NOT EXISTS idx_exercises_remote_id ON exercises(remoteId);',
   'CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);',
   'CREATE INDEX IF NOT EXISTS idx_exercises_user ON exercises(userId);',
   'CREATE INDEX IF NOT EXISTS idx_exercises_deleted ON exercises(isDeleted);',
+  'CREATE INDEX IF NOT EXISTS idx_exercises_sync_status ON exercises(syncStatus);',
+  'CREATE INDEX IF NOT EXISTS idx_exercises_updated_at ON exercises(updatedAt);',
+  'CREATE INDEX IF NOT EXISTS idx_workouts_remote_id ON workouts(remoteId);',
   'CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON workouts(userId, date DESC);',
   'CREATE INDEX IF NOT EXISTS idx_workouts_deleted ON workouts(isDeleted);',
+  'CREATE INDEX IF NOT EXISTS idx_workouts_sync_status ON workouts(syncStatus);',
+  'CREATE INDEX IF NOT EXISTS idx_workouts_updated_at ON workouts(updatedAt);',
+  'CREATE INDEX IF NOT EXISTS idx_workouts_source_plan_remote_id ON workouts(sourcePlanRemoteId);',
   'CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout ON workout_exercises(workoutId);',
+  'CREATE INDEX IF NOT EXISTS idx_workout_exercises_exercise ON workout_exercises(exerciseId);',
   'CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets(workoutExerciseId);',
+  'CREATE INDEX IF NOT EXISTS idx_plans_remote_id ON plans(remoteId);',
   'CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(userId);',
   'CREATE INDEX IF NOT EXISTS idx_plans_date ON plans(plannedDate);',
   'CREATE INDEX IF NOT EXISTS idx_plans_deleted ON plans(isDeleted);',
+  'CREATE INDEX IF NOT EXISTS idx_plans_sync_status ON plans(syncStatus);',
+  'CREATE INDEX IF NOT EXISTS idx_plans_updated_at ON plans(updatedAt);',
   'CREATE INDEX IF NOT EXISTS idx_plan_exercises_plan ON plan_exercises(planId);',
+  'CREATE INDEX IF NOT EXISTS idx_plan_exercises_exercise ON plan_exercises(exerciseId);',
   'CREATE INDEX IF NOT EXISTS idx_plan_sets_exercise ON plan_sets(planExerciseId);',
   'CREATE INDEX IF NOT EXISTS idx_sync_queue_synced ON sync_queue(syncedAt);',
   'CREATE INDEX IF NOT EXISTS idx_sync_queue_entity ON sync_queue(entityType, entityId);'
+];
+
+export const ADDITIVE_MIGRATIONS = [
+  "ALTER TABLE users ADD COLUMN remoteId TEXT;",
+  "ALTER TABLE users ADD COLUMN updatedAt TEXT NOT NULL DEFAULT '';",
+  "ALTER TABLE exercises ADD COLUMN remoteId TEXT;",
+  "ALTER TABLE workouts ADD COLUMN remoteId TEXT;",
+  "ALTER TABLE workouts ADD COLUMN sourcePlanRemoteId TEXT;",
+  "ALTER TABLE plans ADD COLUMN remoteId TEXT;"
 ];
 
 // All table creation statements in order

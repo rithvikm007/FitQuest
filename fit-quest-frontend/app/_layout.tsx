@@ -1,9 +1,8 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
 import { useEffect } from 'react';
-import { initDatabase } from '@/database';
+import { initDatabase } from '@/database/index';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -18,7 +17,7 @@ export default function RootLayout() {
     // Initialize database (platform-specific implementation)
     initDatabase()
       .then(() => console.log('✓ Database initialized'))
-      .catch((error) => console.error('Failed to initialize database:', error));
+      .catch((error: unknown) => console.error('Failed to initialize database:', error));
   }, []);
 
   return (

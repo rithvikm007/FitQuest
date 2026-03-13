@@ -82,6 +82,7 @@ export type SyncOperation = 'create' | 'update' | 'delete';
 
 export interface User {
   id: string;
+  remoteId?: string;
   username: string;
   email: string;
   firstName?: string;
@@ -90,11 +91,13 @@ export interface User {
   height?: number; // in cm
   weight?: number; // in kg
   createdAt: string; // ISO date string
+  updatedAt: string; // ISO date string
   lastSynced?: string; // ISO date string
 }
 
 export interface Exercise {
   id: string;
+  remoteId?: string;
   name: string;
   description?: string;
   category: ExerciseCategory;
@@ -114,11 +117,13 @@ export interface Exercise {
 
 export interface Workout {
   id: string;
+  remoteId?: string;
   userId: string;
   date: string; // ISO date string
   name?: string;
   notes?: string;
   sourcePlanId?: string;
+  sourcePlanRemoteId?: string;
   isDeleted: boolean;
   syncStatus: SyncStatus;
   createdAt: string; // ISO date string
@@ -147,6 +152,7 @@ export interface WorkoutSet {
 
 export interface Plan {
   id: string;
+  remoteId?: string;
   userId: string;
   name: string;
   plannedDate?: string; // ISO date string
@@ -184,6 +190,71 @@ export interface SyncQueueItem {
   payload: string; // JSON string
   createdAt: string; // ISO date string
   syncedAt?: string; // ISO date string
+}
+
+export interface BackendUserDocument {
+  _id: string;
+  username: string;
+  email: string;
+  profile?: {
+    firstName?: string;
+    lastName?: string;
+    age?: number;
+    height?: number;
+    weight?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackendExerciseDocument {
+  _id: string;
+  name: string;
+  description?: string;
+  category: ExerciseCategory;
+  primaryMuscle: PrimaryMuscle;
+  otherMuscles?: PrimaryMuscle[];
+  type: ExerciseType;
+  equipment: Equipment;
+  instructions: string[];
+  videoUrl?: string;
+  isCustom: boolean;
+  user?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackendWorkoutExerciseDocument {
+  exercise: string;
+  sets: Array<{
+    reps?: number;
+    weight?: number;
+    duration?: number;
+    distance?: number;
+    notes?: string;
+  }>;
+}
+
+export interface BackendWorkoutDocument {
+  _id: string;
+  user: string;
+  date: string;
+  name?: string;
+  notes?: string;
+  sourcePlan?: string;
+  exercises: BackendWorkoutExerciseDocument[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackendPlanDocument {
+  _id: string;
+  user: string;
+  name: string;
+  plannedDate?: string;
+  exercises: BackendWorkoutExerciseDocument[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ============================================================================
@@ -251,7 +322,7 @@ export interface SyncResponse {
     workouts: number;
   };
   downloaded: {
-    workouts: Workout[];
-    plans: Plan[];
+    workouts: BackendWorkoutDocument[];
+    plans: BackendPlanDocument[];
   };
 }

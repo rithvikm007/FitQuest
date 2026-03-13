@@ -4,7 +4,30 @@
  */
 
 import * as SQLite from 'expo-sqlite';
-import { ALL_TABLES, CREATE_INDEXES } from './schema';
+import { ADDITIVE_MIGRATIONS, ALL_TABLES, CREATE_INDEXES } from './schema';
+
+async function runSafeStatement(db: SQLite.SQLiteDatabase, sql: string): Promise<void> {
+  try {
+    await db.execAsync(sql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isExpectedAddColumnError =
+      message.includes('duplicate column name') ||
+      message.includes('already exists');
+
+    if (!isExpectedAddColumnError) {
+      throw error;
+    }
+  }
+}
+
+async function backfillSyncColumns(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    UPDATE users
+    SET updatedAt = createdAt
+    WHERE updatedAt = '' OR updatedAt IS NULL;
+  `);
+}
 
 /**
  * Run all database migrations
@@ -20,6 +43,13 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
       await db.execAsync(tableSQL);
     }
     console.log('✓ All tables created successfully');
+
+    // Apply additive migrations for existing databases created before new columns existed
+    for (const migrationSQL of ADDITIVE_MIGRATIONS) {
+      await runSafeStatement(db, migrationSQL);
+    }
+    await backfillSyncColumns(db);
+    console.log('✓ Additive migrations applied successfully');
 
     // Create all indexes
     for (const indexSQL of CREATE_INDEXES) {
