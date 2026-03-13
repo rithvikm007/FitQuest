@@ -33,6 +33,7 @@ import {
   getSyncQueue,
   markSynced,
 } from '@/services/db/syncQueueService';
+import { performSync } from '@/services/syncService';
 import {
   createExercise as apiCreateExercise,
   createPlan as apiCreatePlan,
@@ -1044,6 +1045,420 @@ export default function HomeScreen() {
     }
   };
 
+  const runSyncServiceSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'Sync smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    const cleanup: {
+      token?: string;
+      workoutIds: string[];
+      planIds: string[];
+      exerciseIds: string[];
+    } = {
+      workoutIds: [],
+      planIds: [],
+      exerciseIds: [],
+    };
+
+    try {
+      const now = new Date().toISOString();
+      const unique = Date.now().toString();
+      const username = `sync_smoke_${unique}`;
+      const email = `sync_smoke_${unique}@example.com`;
+      const password = 'Pass123!';
+
+      const registerResponse = await apiRegister(username, email, password);
+      if (!registerResponse.success || !registerResponse.data?.token) {
+        throw new Error(`Register response mismatch: ${formatValue(registerResponse)}`);
+      }
+
+      const loginResponse = await apiLogin(email, password);
+      if (!loginResponse.success || !loginResponse.data?.token) {
+        throw new Error(`Login response mismatch: ${formatValue(loginResponse)}`);
+      }
+
+      const token = loginResponse.data.token;
+      cleanup.token = token;
+
+      const meResponse = await apiGetMe(token);
+      if (!meResponse.success || !meResponse.data?.user?._id) {
+        throw new Error(`getMe response mismatch: ${formatValue(meResponse)}`);
+      }
+
+      appendResult({
+        label: 'Step 1: auth setup',
+        status: 'pass',
+        details: `Registered and logged in ${email}.`,
+      });
+
+      await initDatabase();
+      const db = getDatabase();
+
+      await db.runAsync('DELETE FROM sync_queue;');
+      await db.runAsync('DELETE FROM workout_sets;');
+      await db.runAsync('DELETE FROM workout_exercises;');
+      await db.runAsync('DELETE FROM workouts;');
+      await db.runAsync('DELETE FROM plan_sets;');
+      await db.runAsync('DELETE FROM plan_exercises;');
+      await db.runAsync('DELETE FROM plans;');
+      await db.runAsync('DELETE FROM exercises;');
+      await clearUser();
+
+      const localUserId = generateUuid();
+      await saveUser({
+        id: localUserId,
+        remoteId: meResponse.data.user._id,
+        username,
+        email,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      appendResult({
+        label: 'Step 2: local reset + user seed',
+        status: 'pass',
+        details: 'Local tables cleared and user seeded for FK-safe workout/plan writes.',
+      });
+
+      const remoteExercise = await apiCreateExercise(token, {
+        name: `Sync Seed Exercise ${unique}`,
+        description: 'Seed exercise for sync smoke',
+        category: 'legs',
+        primaryMuscle: 'quadriceps',
+        otherMuscles: ['glutes'],
+        type: 'weight and reps',
+        equipment: 'barbell',
+        instructions: ['Brace core', 'Lower with control', 'Drive up'],
+      });
+      cleanup.exerciseIds.push(remoteExercise._id);
+
+      const seedLocalExercise: Exercise = {
+        id: generateUuid(),
+        remoteId: remoteExercise._id,
+        name: remoteExercise.name,
+        description: remoteExercise.description,
+        category: remoteExercise.category,
+        primaryMuscle: remoteExercise.primaryMuscle,
+        otherMuscles: remoteExercise.otherMuscles ?? [],
+        type: remoteExercise.type,
+        equipment: remoteExercise.equipment,
+        instructions: remoteExercise.instructions,
+        videoUrl: remoteExercise.videoUrl,
+        isCustom: remoteExercise.isCustom,
+        userId: localUserId,
+        isDeleted: false,
+        syncStatus: 'synced',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const savedSeedExerciseId = await saveExercise(seedLocalExercise);
+      const loadedSeedExercise = await getExerciseById(savedSeedExerciseId);
+      if (!loadedSeedExercise) {
+        throw new Error('Failed to seed local exercise for nested sync payloads.');
+      }
+
+      const remotePlan = await apiCreatePlan(token, {
+        id: generateUuid(),
+        userId: meResponse.data.user._id,
+        name: `Sync Plan ${unique}`,
+        plannedDate: now,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: generateUuid(),
+            planId: generateUuid(),
+            exerciseId: loadedSeedExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: loadedSeedExercise,
+            sets: [{ id: generateUuid(), planExerciseId: generateUuid(), reps: 8, weight: 70, orderIndex: 0, createdAt: now }],
+          },
+        ],
+      });
+      cleanup.planIds.push(remotePlan._id);
+
+      const remoteWorkout = await apiCreateWorkout(token, {
+        id: generateUuid(),
+        userId: meResponse.data.user._id,
+        date: now,
+        name: `Sync Workout ${unique}`,
+        notes: 'Seed workout for update path',
+        sourcePlanRemoteId: remotePlan._id,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        exercises: [
+          {
+            id: generateUuid(),
+            workoutId: generateUuid(),
+            exerciseId: loadedSeedExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+            exercise: loadedSeedExercise,
+            sets: [{ id: generateUuid(), workoutExerciseId: generateUuid(), reps: 6, weight: 90, orderIndex: 0, createdAt: now }],
+          },
+        ],
+      });
+      cleanup.workoutIds.push(remoteWorkout._id);
+
+      const localPlanId = generateUuid();
+      const localPlanExerciseId = generateUuid();
+      await savePlan(
+        {
+          id: localPlanId,
+          remoteId: remotePlan._id,
+          userId: localUserId,
+          name: `Local Plan ${unique}`,
+          plannedDate: now,
+          isDeleted: false,
+          syncStatus: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        },
+        [
+          {
+            id: localPlanExerciseId,
+            planId: localPlanId,
+            exerciseId: loadedSeedExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+          },
+        ],
+        [
+          {
+            id: generateUuid(),
+            planExerciseId: localPlanExerciseId,
+            reps: 10,
+            weight: 60,
+            orderIndex: 0,
+            createdAt: now,
+          },
+        ]
+      );
+      await updatePlan(localPlanId, { name: `Local Plan Updated ${unique}` });
+      await addToSyncQueue('plan', localPlanId, 'update', {
+        id: localPlanId,
+        remoteId: remotePlan._id,
+      });
+
+      const localWorkoutId = generateUuid();
+      const localWorkoutExerciseId = generateUuid();
+      await saveWorkout(
+        {
+          id: localWorkoutId,
+          remoteId: remoteWorkout._id,
+          userId: localUserId,
+          date: now,
+          name: `Local Workout ${unique}`,
+          notes: 'Will be updated via sync',
+          sourcePlanId: localPlanId,
+          sourcePlanRemoteId: remotePlan._id,
+          isDeleted: false,
+          syncStatus: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        },
+        [
+          {
+            id: localWorkoutExerciseId,
+            workoutId: localWorkoutId,
+            exerciseId: loadedSeedExercise.id,
+            orderIndex: 0,
+            createdAt: now,
+          },
+        ],
+        [
+          {
+            id: generateUuid(),
+            workoutExerciseId: localWorkoutExerciseId,
+            reps: 6,
+            weight: 85,
+            orderIndex: 0,
+            createdAt: now,
+          },
+        ]
+      );
+      await updateWorkout(localWorkoutId, { name: `Local Workout Updated ${unique}` });
+      await addToSyncQueue('workout', localWorkoutId, 'update', {
+        id: localWorkoutId,
+        remoteId: remoteWorkout._id,
+      });
+
+      const localCreateExerciseId = await saveExercise({
+        id: generateUuid(),
+        name: `Local Create Exercise ${unique}`,
+        description: 'Should be created remotely and receive remoteId',
+        category: 'arms',
+        primaryMuscle: 'biceps',
+        otherMuscles: ['forearms'],
+        type: 'weight and reps',
+        equipment: 'dumbbell',
+        instructions: ['Curl up', 'Lower slowly'],
+        isCustom: true,
+        userId: localUserId,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await addToSyncQueue('exercise', localCreateExerciseId, 'create', { id: localCreateExerciseId });
+
+      const ghostRemoteId = '507f1f77bcf86cd799439011';
+      const ghostExerciseId = await saveExercise({
+        id: generateUuid(),
+        remoteId: ghostRemoteId,
+        name: `Ghost Exercise ${unique}`,
+        description: 'Should be marked deleted when remote is missing',
+        category: 'core',
+        primaryMuscle: 'core',
+        otherMuscles: ['obliques'],
+        type: 'bodyweight reps',
+        equipment: 'body weight',
+        instructions: ['Hold position'],
+        isCustom: true,
+        userId: localUserId,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await addToSyncQueue('exercise', ghostExerciseId, 'update', {
+        id: ghostExerciseId,
+        remoteId: ghostRemoteId,
+      });
+
+      const pendingBefore = await getPendingCount();
+      if (pendingBefore !== 4) {
+        throw new Error(`Expected 4 pending sync rows before performSync, got ${pendingBefore}`);
+      }
+
+      appendResult({
+        label: 'Step 3: queue setup',
+        status: 'pass',
+        details: 'Prepared exercise create, exercise missing-remote update, plan update, and workout update queue rows.',
+      });
+
+      const summary = await performSync(token);
+      if (summary.uploaded < 4) {
+        throw new Error(`Expected uploaded >= 4, got ${summary.uploaded}. Summary: ${formatValue(summary)}`);
+      }
+      if (summary.errors.length > 0) {
+        throw new Error(`performSync returned errors: ${formatValue(summary)}`);
+      }
+
+      appendResult({
+        label: 'Step 4: performSync()',
+        status: 'pass',
+        details: `Summary: ${formatValue(summary)}`,
+      });
+
+      const pendingAfter = await getPendingCount();
+      if (pendingAfter !== 0) {
+        throw new Error(`Expected pending queue to be 0 after sync, got ${pendingAfter}`);
+      }
+
+      const createdExerciseAfter = await getExerciseById(localCreateExerciseId);
+      if (!createdExerciseAfter?.remoteId || createdExerciseAfter.syncStatus !== 'synced') {
+        throw new Error(`Create-path remoteId/syncStatus check failed: ${formatValue(createdExerciseAfter)}`);
+      }
+      cleanup.exerciseIds.push(createdExerciseAfter.remoteId);
+
+      const ghostVisible = await getExerciseById(ghostExerciseId);
+      if (ghostVisible !== null) {
+        throw new Error(`Expected ghost exercise to be hidden by soft delete filter, got: ${formatValue(ghostVisible)}`);
+      }
+
+      const ghostRows = await db.getAllAsync<{ isDeleted: number; syncStatus: string }>(
+        'SELECT isDeleted, syncStatus FROM exercises WHERE id = ? LIMIT 1;',
+        [ghostExerciseId]
+      );
+      if (ghostRows.length === 0 || ghostRows[0].isDeleted !== 1 || ghostRows[0].syncStatus !== 'synced') {
+        throw new Error(`Expected ghost exercise row to be soft-deleted and synced: ${formatValue(ghostRows[0])}`);
+      }
+
+      const localUserAfter = await getUser();
+      if (!localUserAfter?.lastSynced) {
+        throw new Error(`Expected user.lastSynced to be updated. Got: ${formatValue(localUserAfter)}`);
+      }
+
+      const remotePlans = await fetchPlans(token, 1, 20);
+      const remotePlanAfter = remotePlans.find((plan) => plan._id === remotePlan._id);
+      if (!remotePlanAfter || !remotePlanAfter.name.includes('Updated')) {
+        throw new Error(`Remote plan update check failed: ${formatValue(remotePlanAfter)}`);
+      }
+
+      const remoteWorkouts = await fetchWorkouts(token, 1, 20);
+      const remoteWorkoutAfter = remoteWorkouts.find((workout) => workout._id === remoteWorkout._id);
+      if (!remoteWorkoutAfter || !remoteWorkoutAfter.name?.includes('Updated')) {
+        throw new Error(`Remote workout update check failed: ${formatValue(remoteWorkoutAfter)}`);
+      }
+
+      appendResult({
+        label: 'Step 5: post-sync assertions',
+        status: 'pass',
+        details:
+          'Queue drained, local create got remoteId, missing-remote record soft-deleted, user.lastSynced updated, and plan/workout updates visible on backend.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details:
+          'Task 3.2 passed. performSync processed queued create/update operations, reconciled IDs, handled missing remote records safely, and returned a valid summary.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      if (cleanup.token) {
+        for (const workoutId of cleanup.workoutIds) {
+          try {
+            await apiDeleteWorkout(cleanup.token, workoutId);
+          } catch {
+            // Ignore cleanup failures.
+          }
+        }
+
+        for (const planId of cleanup.planIds) {
+          try {
+            await apiDeletePlan(cleanup.token, planId);
+          } catch {
+            // Ignore cleanup failures.
+          }
+        }
+
+        for (const exerciseId of cleanup.exerciseIds) {
+          try {
+            await apiDeleteExercise(cleanup.token, exerciseId);
+          } catch {
+            // Ignore cleanup failures.
+          }
+        }
+      }
+
+      setIsRunning(false);
+    }
+  };
+
   const runExerciseSmokeTest = async () => {
     setResults([]);
     setIsRunning(true);
@@ -1225,6 +1640,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 2.4: Plan CRUD + transactions + nested join + pagination + soft delete</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 2.5: Sync queue add/get/mark/clear/count + dedupe collapse</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.1: API auth/exercises/plans/workouts/sync endpoint coverage</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 3.2: performSync queue processing + reconciliation + summary + soft-delete fallback</Text>
       </View>
 
       <View className="gap-3">
@@ -1298,6 +1714,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 3.1 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-fuchsia-900' : 'bg-fuchsia-700'}`}
+          disabled={isRunning}
+          onPress={runSyncServiceSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 3.2 Test'}
             </Text>
           </View>
         </Pressable>
