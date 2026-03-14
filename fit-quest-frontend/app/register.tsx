@@ -1,13 +1,108 @@
-import { Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+
+import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
+import { useAuth } from '@/contexts/AuthContext';
+import { validateRegisterForm } from '@/utils/authValidation';
 
 export default function RegisterScreen() {
+  const router = useRouter();
+  const { register, error } = useAuth();
+
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validationErrors = useMemo(
+    () => validateRegisterForm(username, email, password, confirmPassword),
+    [username, email, password, confirmPassword]
+  );
+
+  const handleSubmit = async () => {
+    const errors = validateRegisterForm(username, email, password, confirmPassword);
+    if (errors.username || errors.email || errors.password || errors.confirmPassword) {
+      setFormError('Please fix the form errors before continuing.');
+      return;
+    }
+
+    setFormError(null);
+    setIsSubmitting(true);
+
+    try {
+      await register(username.trim(), email.trim(), password);
+      router.replace('/(tabs)');
+    } catch {
+      // error state is surfaced by AuthContext.
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <View className="flex-1 items-center justify-center gap-4 bg-neutral-950 px-6">
-      <Text className="text-3xl font-bold text-white">Register</Text>
-      <Text className="text-center text-sm text-neutral-300">
-        Placeholder register route for auth-guard wiring. Task 6.2 will replace this screen.
-      </Text>
-      <Text className="text-base font-semibold text-primary">Task 6.2 screen pending</Text>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      className="flex-1 bg-neutral-950"
+    >
+      <View className="flex-1 justify-center gap-6 px-6">
+        <View className="gap-2">
+          <Text className="text-center text-4xl font-extrabold text-white">Create Account</Text>
+          <Text className="text-center text-sm text-neutral-300">Sign up to start tracking workouts offline.</Text>
+        </View>
+
+        <View className="gap-4">
+          <Input
+            label="Username"
+            value={username}
+            onChangeText={setUsername}
+            placeholder="Choose a username"
+            autoCapitalize="none"
+            error={validationErrors.username}
+          />
+
+          <Input
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            error={validationErrors.email}
+          />
+
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 6 characters"
+            secureTextEntry
+            error={validationErrors.password}
+          />
+
+          <Input
+            label="Confirm Password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Re-enter your password"
+            secureTextEntry
+            error={validationErrors.confirmPassword}
+          />
+
+          {formError ? <Text className="text-sm text-red-400">{formError}</Text> : null}
+          {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
+
+          <Button title={isSubmitting ? 'Signing Up...' : 'Sign Up'} onPress={handleSubmit} loading={isSubmitting} />
+
+          <Pressable onPress={() => router.push('/login')}>
+            <Text className="text-center text-sm text-neutral-300">
+              Already have an account? <Text className="font-semibold text-primary">Log in</Text>
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

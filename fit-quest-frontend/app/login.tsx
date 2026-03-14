@@ -1,13 +1,85 @@
-import { Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+
+import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
+import { useAuth } from '@/contexts/AuthContext';
+import { validateLoginForm } from '@/utils/authValidation';
 
 export default function LoginScreen() {
+  const router = useRouter();
+  const { login, error } = useAuth();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validationErrors = useMemo(() => validateLoginForm(email, password), [email, password]);
+
+  const handleSubmit = async () => {
+    const errors = validateLoginForm(email, password);
+    if (errors.email || errors.password) {
+      setFormError('Please fix the form errors before continuing.');
+      return;
+    }
+
+    setFormError(null);
+    setIsSubmitting(true);
+
+    try {
+      await login(email.trim(), password);
+      router.replace('/(tabs)');
+    } catch {
+      // error state is surfaced by AuthContext.
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <View className="flex-1 items-center justify-center gap-4 bg-neutral-950 px-6">
-      <Text className="text-3xl font-bold text-white">Login</Text>
-      <Text className="text-center text-sm text-neutral-300">
-        Placeholder login route for auth-guard wiring. Task 6.1 will replace this screen.
-      </Text>
-      <Text className="text-base font-semibold text-primary">Task 6.1 screen pending</Text>
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      className="flex-1 bg-neutral-950"
+    >
+      <View className="flex-1 justify-center gap-6 px-6">
+        <View className="gap-2">
+          <Text className="text-center text-4xl font-extrabold text-white">FitQuest</Text>
+          <Text className="text-center text-sm text-neutral-300">Log in to continue your training journey.</Text>
+        </View>
+
+        <View className="gap-4">
+          <Input
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            error={validationErrors.email}
+          />
+
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter your password"
+            secureTextEntry
+            error={validationErrors.password}
+          />
+
+          {formError ? <Text className="text-sm text-red-400">{formError}</Text> : null}
+          {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
+
+          <Button title={isSubmitting ? 'Logging In...' : 'Log In'} onPress={handleSubmit} loading={isSubmitting} />
+
+          <Pressable onPress={() => router.push('/register')}>
+            <Text className="text-center text-sm text-neutral-300">
+              Don't have an account? <Text className="font-semibold text-primary">Sign up</Text>
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
