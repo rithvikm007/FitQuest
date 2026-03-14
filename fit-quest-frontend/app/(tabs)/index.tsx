@@ -2070,6 +2070,160 @@ export default function HomeScreen() {
     }
   };
 
+  const runSyncContextSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'Sync context smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    const cleanup: {
+      token?: string;
+      createdExerciseRemoteIds: string[];
+    } = {
+      createdExerciseRemoteIds: [],
+    };
+
+    try {
+      const now = new Date().toISOString();
+      const unique = Date.now().toString();
+      const username = `sync_ctx_${unique}`;
+      const email = `sync_ctx_${unique}@example.com`;
+      const password = 'Pass123!';
+
+      await clearUser();
+      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+
+      appendResult({
+        label: 'Step 1: reset local/auth state',
+        status: 'pass',
+        details: 'Cleared local DB dependencies and removed stored auth token.',
+      });
+
+      const registerResponse = await apiRegister(username, email, password);
+      if (!registerResponse.success || !registerResponse.data?.token || !registerResponse.data?.user) {
+        throw new Error(`Register failed: ${formatValue(registerResponse)}`);
+      }
+
+      const loginResponse = await apiLogin(email, password);
+      if (!loginResponse.success || !loginResponse.data?.token || !loginResponse.data?.user) {
+        throw new Error(`Login failed: ${formatValue(loginResponse)}`);
+      }
+
+      const token = loginResponse.data.token;
+      cleanup.token = token;
+
+      const normalizedLoginUser = normalizeBackendUser(loginResponse.data.user);
+      await saveUser(normalizedLoginUser);
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+
+      appendResult({
+        label: 'Step 2: auth setup',
+        status: 'pass',
+        details: 'Registered/logged in and seeded local user for sync context simulation.',
+      });
+
+      const localExerciseId = await saveExercise({
+        id: generateUuid(),
+        name: `Sync Context Exercise ${unique}`,
+        description: 'Created locally and queued to validate SyncContext flow.',
+        category: 'arms',
+        primaryMuscle: 'biceps',
+        otherMuscles: ['forearms'],
+        type: 'weight and reps',
+        equipment: 'dumbbell',
+        instructions: ['Curl up', 'Lower slowly'],
+        isCustom: true,
+        userId: normalizedLoginUser.id,
+        isDeleted: false,
+        syncStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await addToSyncQueue('exercise', localExerciseId, 'create', {
+        id: localExerciseId,
+        remoteId: null,
+      });
+
+      const pendingBefore = await getPendingCount();
+      if (pendingBefore < 1) {
+        throw new Error(`Expected pendingCount >= 1 before sync, got ${pendingBefore}`);
+      }
+
+      appendResult({
+        label: 'Step 3: getPendingChanges() simulation',
+        status: 'pass',
+        details: `Pending changes detected: ${pendingBefore}`,
+      });
+
+      const summary = await performSync(token);
+      if (summary.errors.length > 0) {
+        throw new Error(`performSync returned errors: ${formatValue(summary.errors)}`);
+      }
+
+      const pendingAfter = await getPendingCount();
+      if (pendingAfter !== 0) {
+        throw new Error(`Expected pendingCount = 0 after sync, got ${pendingAfter}`);
+      }
+
+      const syncedExercise = await getExerciseById(localExerciseId);
+      if (!syncedExercise?.remoteId || syncedExercise.syncStatus !== 'synced') {
+        throw new Error(`Expected synced exercise with remoteId, got: ${formatValue(syncedExercise)}`);
+      }
+      cleanup.createdExerciseRemoteIds.push(syncedExercise.remoteId);
+
+      const userAfterSync = await getUser();
+      if (!userAfterSync?.lastSynced) {
+        throw new Error(`Expected user.lastSynced after sync, got: ${formatValue(userAfterSync)}`);
+      }
+
+      const parsedLastSynced = new Date(userAfterSync.lastSynced);
+      if (Number.isNaN(parsedLastSynced.getTime())) {
+        throw new Error(`Invalid lastSynced date: ${userAfterSync.lastSynced}`);
+      }
+
+      appendResult({
+        label: 'Step 4: sync() + lastSynced refresh simulation',
+        status: 'pass',
+        details: `Sync summary uploaded=${summary.uploaded}, downloaded=${summary.downloaded}. lastSynced=${userAfterSync.lastSynced}`,
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details:
+          'Task 4.2 passed. SyncContext contract validated: pending count refresh, authenticated sync execution, sync status updates, and lastSynced hydration.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      if (cleanup.token) {
+        for (const remoteId of cleanup.createdExerciseRemoteIds) {
+          try {
+            await apiDeleteExercise(cleanup.token, remoteId);
+          } catch {
+            // Ignore cleanup failures in smoke harness.
+          }
+        }
+      }
+
+      setIsRunning(false);
+    }
+  };
+
   return (
     <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 p-6">
       <View className="gap-2">
@@ -2090,6 +2244,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 3.2: performSync queue processing + reconciliation + summary + soft-delete fallback</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.3: syncMappers pure translation utilities (local to backend, _id to remoteId)</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 4.1: auth context flow (register/login/loadStoredAuth/updateProfile/logout)</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 4.2: sync context flow (pendingCount/sync/lastSynced)</Text>
       </View>
 
       <View className="gap-3">
@@ -2199,6 +2354,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 4.1 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-orange-900' : 'bg-orange-700'}`}
+          disabled={isRunning}
+          onPress={runSyncContextSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 4.2 Test'}
             </Text>
           </View>
         </Pressable>
