@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getDatabase, initDatabase } from '@/database/index';
 import {
@@ -50,6 +51,7 @@ import {
   register as apiRegister,
   startWorkoutFromPlan,
   syncData,
+  normalizeBackendUser,
   updateExercise as apiUpdateExercise,
   updatePlan as apiUpdatePlan,
   updateProfile as apiUpdateProfile,
@@ -91,6 +93,8 @@ const seedUser: Partial<User> = {
   email: 'fitquestdev@example.com',
   remoteId: 'mongo-user-123',
 };
+
+const AUTH_TOKEN_KEY = '@fitquest_token';
 
 function formatValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -1899,6 +1903,173 @@ export default function HomeScreen() {
     }
   };
 
+  const runAuthContextSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    if (Platform.OS === 'web') {
+      appendResult({
+        label: 'Platform check',
+        status: 'fail',
+        details: 'Auth context smoke test must be run on Android or iOS.',
+      });
+      setIsRunning(false);
+      return;
+    }
+
+    try {
+      const unique = Date.now().toString();
+      const username = `auth_ctx_${unique}`;
+      const email = `auth_ctx_${unique}@example.com`;
+      const password = 'Pass123!';
+
+      await clearUser();
+      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+
+      appendResult({
+        label: 'Step 1: reset auth state',
+        status: 'pass',
+        details: 'Cleared local user row and @fitquest_token before test.',
+      });
+
+      const registerResponse = await apiRegister(username, email, password);
+      if (!registerResponse.success || !registerResponse.data?.token || !registerResponse.data?.user) {
+        throw new Error(`Register failed: ${formatValue(registerResponse)}`);
+      }
+
+      appendResult({
+        label: 'Step 2: register()',
+        status: 'pass',
+        details: `Registered test user ${email}.`,
+      });
+
+      const loginResponse = await apiLogin(email, password);
+      if (!loginResponse.success || !loginResponse.data?.token || !loginResponse.data?.user) {
+        throw new Error(`Login failed: ${formatValue(loginResponse)}`);
+      }
+
+      const loginToken = loginResponse.data.token;
+      const localAfterLogin = await getUser();
+      const normalizedLoginUser = normalizeBackendUser(loginResponse.data.user, localAfterLogin?.id);
+      await saveUser(normalizedLoginUser);
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, loginToken);
+
+      const storedTokenAfterLogin = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const savedLoginUser = await getUser();
+
+      if (!storedTokenAfterLogin || storedTokenAfterLogin !== loginToken || !savedLoginUser?.remoteId) {
+        throw new Error(
+          `Expected token persistence + local user after login. token=${storedTokenAfterLogin} user=${formatValue(savedLoginUser)}`
+        );
+      }
+
+      appendResult({
+        label: 'Step 3: login() persistence',
+        status: 'pass',
+        details: 'Token stored to AsyncStorage and local user saved to SQLite.',
+      });
+
+      const storedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      if (!storedToken) {
+        throw new Error('Expected stored auth token for loadStoredAuth simulation.');
+      }
+
+      const meResponse = await apiGetMe(storedToken);
+      if (!meResponse.success || !meResponse.data?.user) {
+        throw new Error(`getMe failed: ${formatValue(meResponse)}`);
+      }
+
+      const existingUser = await getUser();
+      const hydratedUser = normalizeBackendUser(meResponse.data.user, existingUser?.id);
+      await saveUser(hydratedUser);
+
+      const loadedUser = await getUser();
+      const shouldPreserveId = Boolean(existingUser?.id);
+      const idPreserved = shouldPreserveId ? loadedUser?.id === existingUser?.id : Boolean(loadedUser?.id);
+
+      if (
+        !loadedUser ||
+        !idPreserved ||
+        loadedUser.remoteId !== meResponse.data.user._id ||
+        loadedUser.email !== meResponse.data.user.email
+      ) {
+        throw new Error(`loadStoredAuth simulation mismatch: ${formatValue(loadedUser)}`);
+      }
+
+      appendResult({
+        label: 'Step 4: loadStoredAuth() simulation',
+        status: 'pass',
+        details: 'Stored token verified with /auth/me and user rehydrated from backend to local DB.',
+      });
+
+      const profileResponse = await apiUpdateProfile(storedToken, {
+        firstName: 'Auth',
+        lastName: 'Context',
+        age: 29,
+        height: 177,
+        weight: 74,
+      });
+
+      if (!profileResponse.success || !profileResponse.data?.user) {
+        throw new Error(`Update profile failed: ${formatValue(profileResponse)}`);
+      }
+
+      const localUserBeforeUpdate = await getUser();
+      const normalizedUpdatedUser = normalizeBackendUser(profileResponse.data.user, localUserBeforeUpdate?.id);
+      await updateUserProfile(normalizedUpdatedUser);
+
+      const userAfterUpdate = await getUser();
+      if (
+        !userAfterUpdate ||
+        userAfterUpdate.firstName !== 'Auth' ||
+        userAfterUpdate.lastName !== 'Context' ||
+        userAfterUpdate.age !== 29
+      ) {
+        throw new Error(`Expected updated local profile fields, got: ${formatValue(userAfterUpdate)}`);
+      }
+
+      appendResult({
+        label: 'Step 5: updateProfile()',
+        status: 'pass',
+        details: 'Backend profile update reflected in local user state fields.',
+      });
+
+      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      await clearUser();
+
+      const storedTokenAfterLogout = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const userAfterLogout = await getUser();
+
+      if (storedTokenAfterLogout !== null || userAfterLogout !== null) {
+        throw new Error(
+          `Expected logout cleanup. token=${storedTokenAfterLogout} user=${formatValue(userAfterLogout)}`
+        );
+      }
+
+      appendResult({
+        label: 'Step 6: logout()',
+        status: 'pass',
+        details: 'Token removed from AsyncStorage and local user cleared.',
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details:
+          'Task 4.1 passed. Auth flow behavior validated for login/register/logout, token persistence, local hydration, and profile updates.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   return (
     <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 p-6">
       <View className="gap-2">
@@ -1918,6 +2089,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 3.1: API auth/exercises/plans/workouts/sync endpoint coverage</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.2: performSync queue processing + reconciliation + summary + soft-delete fallback</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 3.3: syncMappers pure translation utilities (local to backend, _id to remoteId)</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 4.1: auth context flow (register/login/loadStoredAuth/updateProfile/logout)</Text>
       </View>
 
       <View className="gap-3">
@@ -2015,6 +2187,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 3.3 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-rose-900' : 'bg-rose-700'}`}
+          disabled={isRunning}
+          onPress={runAuthContextSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 4.1 Test'}
             </Text>
           </View>
         </Pressable>

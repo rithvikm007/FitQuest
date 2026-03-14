@@ -207,6 +207,15 @@ export async function updateUserProfile(profile: Partial<User>): Promise<void> {
 export async function clearUser(): Promise<void> {
   try {
     const db = await requireDatabase();
+    // Clear dependent tables first to satisfy foreign key constraints on users.id.
+    await db.runAsync('DELETE FROM sync_queue;');
+    await db.runAsync('DELETE FROM workout_sets;');
+    await db.runAsync('DELETE FROM workout_exercises;');
+    await db.runAsync('DELETE FROM workouts;');
+    await db.runAsync('DELETE FROM plan_sets;');
+    await db.runAsync('DELETE FROM plan_exercises;');
+    await db.runAsync('DELETE FROM plans;');
+    await db.runAsync('DELETE FROM exercises;');
     await db.runAsync('DELETE FROM users;');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
