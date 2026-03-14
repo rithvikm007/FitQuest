@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSegments } from 'expo-router';
 
 import { getDatabase, initDatabase } from '@/database/index';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSync } from '@/contexts/SyncContext';
 import {
   deleteExercise,
   getExerciseById,
@@ -113,6 +116,10 @@ function generateUuid(): string {
 }
 
 export default function HomeScreen() {
+  const segments = useSegments();
+  const auth = useAuth();
+  const syncContext = useSync();
+
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
 
@@ -2224,6 +2231,103 @@ export default function HomeScreen() {
     }
   };
 
+  const runAuthGuardSmokeTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    try {
+      const hasAuthShape =
+        typeof auth.login === 'function' &&
+        typeof auth.register === 'function' &&
+        typeof auth.logout === 'function' &&
+        typeof auth.loadStoredAuth === 'function';
+
+      const hasSyncShape =
+        typeof syncContext.sync === 'function' &&
+        typeof syncContext.getPendingChanges === 'function';
+
+      if (!hasAuthShape || !hasSyncShape) {
+        throw new Error('AuthProvider/SyncProvider hooks are not fully wired in root layout.');
+      }
+
+      appendResult({
+        label: 'Step 1: provider wiring',
+        status: 'pass',
+        details: 'useAuth and useSync are available inside tabs via root provider tree.',
+      });
+
+      const currentRoute = segments[0] ?? '';
+      const inAuthRoute = currentRoute === 'login' || currentRoute === 'register';
+
+      if (!auth.isLoading && !auth.token && !inAuthRoute) {
+        throw new Error(`Expected redirect to auth route when unauthenticated. Current route: ${currentRoute}`);
+      }
+
+      if (!auth.isLoading && auth.token && inAuthRoute) {
+        throw new Error(`Expected redirect to /(tabs) when authenticated. Current route: ${currentRoute}`);
+      }
+
+      appendResult({
+        label: 'Step 2: route guard state check',
+        status: 'pass',
+        details: `Route=${currentRoute || '(root)'}, token=${auth.token ? 'present' : 'missing'}, authLoading=${String(auth.isLoading)}.`,
+      });
+
+      await syncContext.getPendingChanges();
+      const pendingFromDb = await getPendingCount();
+
+      if (pendingFromDb < 0) {
+        throw new Error(`Pending count must be >= 0. Got: ${pendingFromDb}`);
+      }
+
+      appendResult({
+        label: 'Step 3: sync context pending refresh',
+        status: 'pass',
+        details: `getPendingChanges() executed. Pending from DB = ${pendingFromDb}.`,
+      });
+
+      if (!auth.token) {
+        throw new Error('Task 6.3 sync smoke requires an authenticated session to validate sync().');
+      }
+
+      await syncContext.sync();
+
+      const userAfterSync = await getUser();
+      const hasValidLastSynced =
+        typeof userAfterSync?.lastSynced === 'string' &&
+        !Number.isNaN(new Date(userAfterSync.lastSynced).getTime()) &&
+        syncContext.syncError === null;
+
+      if (!hasValidLastSynced) {
+        throw new Error(
+          `Expected valid lastSynced + no syncError after sync(). user=${formatValue(userAfterSync)} syncError=${syncContext.syncError}`
+        );
+      }
+
+      appendResult({
+        label: 'Step 4: sync() + lastSynced behavior',
+        status: 'pass',
+        details: `sync() completed. user.lastSynced=${userAfterSync?.lastSynced}.`,
+      });
+
+      appendResult({
+        label: 'Smoke test complete',
+        status: 'pass',
+        details:
+          'Task 6.3 passed. Root layout initializes DB, providers are active, route guard state is valid, and auth-backed sync updates lastSynced.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   return (
     <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 p-6">
       <View className="gap-2">
@@ -2245,6 +2349,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 3.3: syncMappers pure translation utilities (local to backend, _id to remoteId)</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 4.1: auth context flow (register/login/loadStoredAuth/updateProfile/logout)</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 4.2: sync context flow (pendingCount/sync/lastSynced)</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Task 6.3: root layout providers + auth guard + DB init gating</Text>
       </View>
 
       <View className="gap-3">
@@ -2366,6 +2471,18 @@ export default function HomeScreen() {
             {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
             <Text className="text-center font-semibold text-white">
               {isRunning ? 'Running...' : 'Run Task 4.2 Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-lime-900' : 'bg-lime-700'}`}
+          disabled={isRunning}
+          onPress={runAuthGuardSmokeTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Task 6.3 Test'}
             </Text>
           </View>
         </Pressable>
