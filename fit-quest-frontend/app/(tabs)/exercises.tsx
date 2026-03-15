@@ -1,11 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { Input } from '@/components/common/Input';
+import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
+import { fetchExercises } from '@/services/api';
 import { getExercises } from '@/services/db/exerciseDbService';
+import { getExerciseById, saveExercise } from '@/services/db/exerciseDbService';
+import { isCompleteBackendExerciseDocument, toLocalExerciseRecord } from '@/services/syncMappers';
 import type { Equipment, Exercise, ExerciseCategory } from '@/types/models';
 
 const CATEGORY_FILTERS: Array<{ label: string; value: ExerciseCategory | 'all' }> = [
@@ -53,6 +58,7 @@ function getEquipmentIconName(equipment: Equipment): keyof typeof Ionicons.glyph
 
 export default function ExercisesScreen() {
   const router = useRouter();
+  const { token } = useAuth();
   const { sync } = useSync();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +68,35 @@ export default function ExercisesScreen() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const loadExercises = async (refresh = false) => {
+  const syncExercisesFromBackend = async () => {
+    if (!token) {
+      return;
+    }
+
+    const backendExercises = await fetchExercises(token);
+    const now = new Date().toISOString();
+
+    for (const backendExercise of backendExercises) {
+      if (!isCompleteBackendExerciseDocument(backendExercise)) {
+        continue;
+      }
+
+      const existingLocal = await getExerciseById(backendExercise._id, true);
+
+      // Keep local tombstones authoritative until explicit delete sync handling is wired.
+      if (existingLocal?.isDeleted) {
+        continue;
+      }
+
+      const mapped = toLocalExerciseRecord(backendExercise, {
+        existingLocalId: existingLocal?.id,
+        nowIso: now,
+      });
+      await saveExercise(mapped);
+    }
+  };
+
+  const loadExercises = useCallback(async (refresh = false, hydrateFromBackend = false) => {
     try {
       if (refresh) {
         setIsRefreshing(true);
@@ -70,8 +104,19 @@ export default function ExercisesScreen() {
         setIsLoading(true);
       }
 
+      if (hydrateFromBackend) {
+        await syncExercisesFromBackend();
+      }
+
       const loadedExercises = await getExercises();
-      setExercises(loadedExercises);
+
+      if (!hydrateFromBackend && loadedExercises.length === 0) {
+        // Seed local cache from backend the first time if available.
+        await syncExercisesFromBackend();
+      }
+
+      const refreshedExercises = await getExercises();
+      setExercises(refreshedExercises);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -80,11 +125,18 @@ export default function ExercisesScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     loadExercises();
-  }, []);
+  }, [loadExercises]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh local list when returning from detail/form screens.
+      loadExercises(false, false);
+    }, [loadExercises])
+  );
 
   const filteredExercises = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -107,7 +159,7 @@ export default function ExercisesScreen() {
     } catch {
       // Keep local reload behavior even if remote sync fails.
     } finally {
-      await loadExercises(true);
+      await loadExercises(true, true);
     }
   };
 

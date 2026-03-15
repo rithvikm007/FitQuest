@@ -220,14 +220,16 @@ export async function getExercises(filters?: ExerciseFilters): Promise<Exercise[
   }
 }
 
-export async function getExerciseById(id: string): Promise<Exercise | null> {
+export async function getExerciseById(id: string, includeDeleted = false): Promise<Exercise | null> {
   try {
     const db = await requireDatabase();
+    const deletedClause = includeDeleted ? '' : 'AND isDeleted = 0';
     const rows = await db.getAllAsync<ExerciseRow>(
       `
         SELECT *
         FROM exercises
-        WHERE (id = ? OR remoteId = ?) AND isDeleted = 0
+        WHERE (id = ? OR remoteId = ?)
+        ${deletedClause}
         LIMIT 1;
       `,
       [id, id]
