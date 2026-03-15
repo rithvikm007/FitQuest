@@ -2551,6 +2551,14 @@ export default function HomeScreen() {
             <Text className="text-center font-semibold text-white">Open Register</Text>
           </Pressable>
         </View>
+
+        <Pressable
+          className="mt-3 rounded-xl bg-neutral-800 px-4 py-3"
+          disabled={isRunning}
+          onPress={() => router.push('/(tabs)/exercises')}
+        >
+          <Text className="text-center font-semibold text-white">Open Exercise List (Task 7.1)</Text>
+        </Pressable>
       </View>
 
       <View className="gap-3">
