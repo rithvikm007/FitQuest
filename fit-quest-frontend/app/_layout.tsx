@@ -50,6 +50,10 @@ function RootNavigator() {
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ headerShown: false }} />
       <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+      <Stack.Screen
+        name="modal/exercise-picker"
+        options={{ presentation: 'modal', title: 'Exercise Picker' }}
+      />
     </Stack>
   );
 }
