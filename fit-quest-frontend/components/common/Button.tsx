@@ -11,17 +11,20 @@ type ButtonProps = {
   fullWidth?: boolean;
 };
 
-const variantClassMap: Record<ButtonVariant, { container: string; text: string }> = {
+const variantClassMap: Record<ButtonVariant, { container: string; pressed: string; text: string }> = {
   primary: {
     container: 'bg-primary',
+    pressed: 'bg-violet-700',
     text: 'text-white',
   },
   secondary: {
     container: 'bg-secondary',
+    pressed: 'bg-indigo-700',
     text: 'text-white',
   },
   outline: {
     container: 'border-2 border-primary bg-transparent',
+    pressed: 'bg-primary/10',
     text: 'text-primary',
   },
 };
@@ -37,9 +40,17 @@ export function Button({
   const isDisabled = disabled || loading;
   const variantClasses = variantClassMap[variant];
 
+  const pressedBackgroundColor =
+    variant === 'primary'
+      ? '#7E22CE'
+      : variant === 'secondary'
+        ? '#3730A3'
+        : 'rgba(165, 86, 251, 0.1)';
+
   return (
     <Pressable
-      className={`${fullWidth ? 'w-full' : ''} rounded-xl px-4 py-3 ${variantClasses.container} ${isDisabled ? 'opacity-60' : 'active:opacity-85'}`}
+      className={`${fullWidth ? 'w-full' : ''} rounded-xl px-4 py-3 ${variantClasses.container} ${isDisabled ? 'bg-neutral-500 opacity-70' : ''}`}
+      style={({ pressed }) => (pressed && !isDisabled ? { backgroundColor: pressedBackgroundColor } : undefined)}
       disabled={isDisabled}
       onPress={onPress}
     >

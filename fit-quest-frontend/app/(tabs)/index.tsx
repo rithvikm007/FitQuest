@@ -3,6 +3,11 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useSegments } from 'expo-router';
 
+import { Button } from '@/components/common/Button';
+import { Card } from '@/components/common/Card';
+import { Input } from '@/components/common/Input';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
 import { getDatabase, initDatabase } from '@/database/index';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
@@ -124,6 +129,8 @@ export default function HomeScreen() {
 
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
+  const [showPhase5Visual, setShowPhase5Visual] = useState(false);
+  const [demoInputValue, setDemoInputValue] = useState('');
 
   const appendResult = (result: TestResult) => {
     setResults((currentResults) => [...currentResults, result]);
@@ -138,6 +145,49 @@ export default function HomeScreen() {
       // Best-effort navigation for testing even if logout throws.
     } finally {
       router.replace(route);
+    }
+  };
+
+  const runPhase5VisualRenderTest = async () => {
+    setResults([]);
+    setIsRunning(true);
+
+    try {
+      setShowPhase5Visual(true);
+
+      appendResult({
+        label: 'Phase 5 visual render test',
+        status: 'pass',
+        details:
+          'Component preview enabled. Verify Button/Input/Card/LoadingSpinner/SyncStatusIndicator rendering below.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Smoke test failed',
+        status: 'fail',
+        details: message,
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleVisualSyncPress = async () => {
+    try {
+      await syncContext.sync();
+      appendResult({
+        label: 'Phase 5 visual sync trigger',
+        status: 'pass',
+        details: 'SyncStatusIndicator pressed and sync() completed.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendResult({
+        label: 'Phase 5 visual sync trigger',
+        status: 'fail',
+        details: message,
+      });
     }
   };
 
@@ -2476,6 +2526,7 @@ export default function HomeScreen() {
         <Text className="text-sm leading-6 text-neutral-200">Task 4.2: sync context flow (pendingCount/sync/lastSynced)</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 6.3: root layout providers + auth guard + DB init gating</Text>
         <Text className="text-sm leading-6 text-neutral-200">Task 6.1/6.2: login/register form validation + submit flow</Text>
+        <Text className="text-sm leading-6 text-neutral-200">Phase 5 visual: render all common components</Text>
       </View>
 
       <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
@@ -2650,12 +2701,85 @@ export default function HomeScreen() {
         </Pressable>
 
         <Pressable
+          className={`rounded-xl px-4 py-4 ${isRunning ? 'bg-pink-900' : 'bg-pink-700'}`}
+          disabled={isRunning}
+          onPress={runPhase5VisualRenderTest}>
+          <View className="min-h-6 flex-row items-center justify-center gap-2">
+            {isRunning ? <ActivityIndicator color="#FFFFFF" /> : null}
+            <Text className="text-center font-semibold text-white">
+              {isRunning ? 'Running...' : 'Run Phase 5 Visual Test'}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
           className="rounded-xl border border-neutral-700 px-4 py-4"
           disabled={isRunning}
           onPress={() => setResults([])}>
           <Text className="text-center font-semibold text-neutral-200">Clear Log</Text>
         </Pressable>
       </View>
+
+      {showPhase5Visual ? (
+        <View className="gap-3 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+          <Text className="text-lg font-semibold text-white">Phase 5 Visual Preview</Text>
+
+          <Card>
+            <Text className="mb-2 text-base font-semibold text-neutral-900">Card (static)</Text>
+            <Text className="text-sm text-neutral-700">This is the default Card component style.</Text>
+          </Card>
+
+          <Card
+            onPress={() =>
+              appendResult({
+                label: 'Phase 5 card press',
+                status: 'info',
+                details: 'Pressable Card was tapped successfully.',
+              })
+            }
+          >
+            <Text className="mb-2 text-base font-semibold text-neutral-900">Card (pressable)</Text>
+            <Text className="text-sm text-neutral-700">Tap this card to verify press behavior.</Text>
+          </Card>
+
+          <View className="gap-2">
+            <Button title="Primary Button" onPress={() => undefined} variant="primary" />
+            <Button title="Secondary Button" onPress={() => undefined} variant="secondary" />
+            <Button title="Outline Button" onPress={() => undefined} variant="outline" />
+            <Button title="Loading Button" onPress={() => undefined} loading />
+            <Button title="Disabled Button" onPress={() => undefined} disabled />
+          </View>
+
+          <View className="gap-3">
+            <Input
+              label="Input"
+              value={demoInputValue}
+              onChangeText={setDemoInputValue}
+              placeholder="Type here to test input"
+            />
+            <Input
+              label="Input Error State"
+              value=""
+              onChangeText={() => undefined}
+              placeholder="Example error"
+              error="This is an example input error message."
+            />
+          </View>
+
+          <View className="flex-row gap-3">
+            <View className="h-16 flex-1 rounded-xl bg-neutral-800">
+              <LoadingSpinner size="small" />
+            </View>
+            <View className="h-16 flex-1 rounded-xl bg-neutral-800">
+              <LoadingSpinner size="large" />
+            </View>
+          </View>
+
+          <View className="items-start">
+            <SyncStatusIndicator onSyncPress={handleVisualSyncPress} />
+          </View>
+        </View>
+      ) : null}
 
       <View className="gap-3 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
         <Text className="text-lg font-semibold text-white">Results</Text>
