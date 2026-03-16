@@ -41,12 +41,13 @@ export function SyncStatusIndicator({ onSyncPress }: SyncStatusIndicatorProps) {
         <Ionicons name={isSyncing ? 'sync' : 'cloud-upload-outline'} size={20} color="#FFFFFF" />
 
         {pendingCount > 0 ? (
-          <View className="absolute -right-1 -top-1 min-w-5 rounded-full bg-primary px-1 py-0.5">
+          <View className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-white bg-primary px-1 py-0.5">
             <Text className="text-center text-[10px] font-semibold text-white">{pendingCount}</Text>
           </View>
         ) : null}
       </Pressable>
 
+      <Text className="text-xs text-neutral-200">Pending: {pendingCount}</Text>
       <Text className="text-xs text-neutral-300">{isSyncing ? 'Syncing...' : formatRelativeTime(lastSynced)}</Text>
     </View>
   );

@@ -7,8 +7,10 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSync } from '@/contexts/SyncContext';
 import { getExerciseById } from '@/services/db/exerciseDbService';
 import { getPlanById } from '@/services/db/planDbService';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { getWorkoutById, saveWorkout } from '@/services/db/workoutDbService';
 import type { Exercise, ExerciseType, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
 
@@ -121,6 +123,7 @@ export default function WorkoutFormScreen() {
   }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { getPendingChanges } = useSync();
 
   const resolvedWorkoutId = id ?? workoutId;
   const isEditMode = Boolean(resolvedWorkoutId);
@@ -434,6 +437,17 @@ export default function WorkoutFormScreen() {
       });
 
       const savedWorkoutId = await saveWorkout(workoutPayload, workoutExercises, workoutSets);
+      const operation = existingWorkout ? 'update' : 'create';
+
+      await addToSyncQueue('workout', savedWorkoutId, operation, {
+        ...workoutPayload,
+        id: savedWorkoutId,
+        remoteId: workoutPayload.remoteId ?? null,
+        exercises: workoutExercises,
+        sets: workoutSets,
+      });
+
+      await getPendingChanges();
       router.replace({ pathname: '/workout/[id]', params: { id: savedWorkoutId } } as never);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

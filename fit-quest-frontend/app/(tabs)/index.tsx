@@ -1,10 +1,12 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
+import { useSync } from '@/contexts/SyncContext';
+import { getPendingCount } from '@/services/db/syncQueueService';
 import { getWorkoutById, getWorkouts } from '@/services/db/workoutDbService';
 import type { SyncStatus, Workout } from '@/types/models';
 
@@ -42,6 +44,7 @@ function getSyncStatusLabel(status: SyncStatus): string {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { sync } = useSync();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +90,32 @@ export default function HomeScreen() {
     await loadWorkouts(true);
   };
 
+  const handleSyncPress = useCallback(async () => {
+    try {
+      const pendingBefore = await getPendingCount();
+      const summary = await sync();
+      await loadWorkouts(true);
+      const pendingAfter = await getPendingCount();
+      const processed = Math.max(0, pendingBefore - pendingAfter);
+
+      if (summary.errors.length > 0) {
+        Alert.alert(
+          'Sync Incomplete',
+          `${summary.errors[0]}\n\nProcessed ${processed} change${processed === 1 ? '' : 's'}. Pending: ${pendingAfter}.`
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Sync Complete',
+        `Uploaded: ${summary.uploaded}, Downloaded: ${summary.downloaded}. Pending: ${pendingAfter}.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert('Sync Failed', message);
+    }
+  }, [loadWorkouts, sync]);
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-neutral-950">
@@ -102,7 +131,7 @@ export default function HomeScreen() {
           <Text className="text-3xl font-bold text-white">My Workouts</Text>
           <Text className="mt-1 text-sm text-neutral-300">Track completed workouts and sync status.</Text>
         </View>
-        <SyncStatusIndicator onSyncPress={() => void loadWorkouts(true)} />
+        <SyncStatusIndicator onSyncPress={() => void handleSyncPress()} />
       </View>
 
       {error ? <Text className="px-4 pb-2 text-sm text-red-400">{error}</Text> : null}

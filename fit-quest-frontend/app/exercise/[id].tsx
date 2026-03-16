@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { useSync } from '@/contexts/SyncContext';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deleteExercise, getExerciseById } from '@/services/db/exerciseDbService';
 import type { Exercise } from '@/types/models';
 
 export default function ExerciseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { getPendingChanges } = useSync();
 
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,6 +50,11 @@ export default function ExerciseDetailScreen() {
     setIsDeleting(true);
     try {
       await deleteExercise(exercise.id);
+      await addToSyncQueue('exercise', exercise.id, 'delete', {
+        id: exercise.id,
+        remoteId: exercise.remoteId ?? null,
+      });
+      await getPendingChanges();
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

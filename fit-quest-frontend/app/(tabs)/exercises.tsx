@@ -2,12 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { Input } from '@/components/common/Input';
+import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
 import { fetchExercises } from '@/services/api';
+import { getPendingCount } from '@/services/db/syncQueueService';
 import { getExercises } from '@/services/db/exerciseDbService';
 import { getExerciseById, saveExercise } from '@/services/db/exerciseDbService';
 import { isCompleteBackendExerciseDocument, toLocalExerciseRecord } from '@/services/syncMappers';
@@ -163,10 +165,39 @@ export default function ExercisesScreen() {
     }
   };
 
+  const handleSyncPress = useCallback(async () => {
+    try {
+      const pendingBefore = await getPendingCount();
+      const summary = await sync();
+      await loadExercises(true, true);
+      const pendingAfter = await getPendingCount();
+      const processed = Math.max(0, pendingBefore - pendingAfter);
+
+      if (summary.errors.length > 0) {
+        Alert.alert(
+          'Sync Incomplete',
+          `${summary.errors[0]}\n\nProcessed ${processed} change${processed === 1 ? '' : 's'}. Pending: ${pendingAfter}.`
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Sync Complete',
+        `Uploaded: ${summary.uploaded}, Downloaded: ${summary.downloaded}. Pending: ${pendingAfter}.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert('Sync Failed', message);
+    }
+  }, [loadExercises, sync]);
+
   return (
     <View className="flex-1 bg-neutral-950">
       <View className="gap-3 px-4 pb-2 pt-5">
-        <Text className="text-3xl font-bold text-white">Exercises</Text>
+        <View className="flex-row items-start justify-between">
+          <Text className="text-3xl font-bold text-white">Exercises</Text>
+          <SyncStatusIndicator onSyncPress={() => void handleSyncPress()} />
+        </View>
 
         <Input
           value={searchQuery}

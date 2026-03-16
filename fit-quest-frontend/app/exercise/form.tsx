@@ -5,7 +5,9 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSync } from '@/contexts/SyncContext';
 import { getExerciseById, saveExercise } from '@/services/db/exerciseDbService';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import type { Equipment, Exercise, ExerciseCategory, ExerciseType, PrimaryMuscle } from '@/types/models';
 
 const CATEGORY_OPTIONS: ExerciseCategory[] = [
@@ -110,6 +112,7 @@ export default function ExerciseFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { getPendingChanges } = useSync();
 
   const [isLoading, setIsLoading] = useState(Boolean(id));
   const [isSaving, setIsSaving] = useState(false);
@@ -226,7 +229,16 @@ export default function ExerciseFormScreen() {
         updatedAt: now,
       };
 
-      await saveExercise(payload);
+      const savedExerciseId = await saveExercise(payload);
+      const operation = existingExercise ? 'update' : 'create';
+
+      await addToSyncQueue('exercise', savedExerciseId, operation, {
+        ...payload,
+        id: savedExerciseId,
+        remoteId: payload.remoteId ?? null,
+      });
+
+      await getPendingChanges();
       router.replace('/(tabs)/exercises' as never);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

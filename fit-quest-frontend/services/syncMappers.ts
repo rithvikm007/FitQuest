@@ -41,6 +41,10 @@ function defaultIdFactory(): string {
   });
 }
 
+function isMongoObjectId(value: string | undefined): value is string {
+  return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
+}
+
 export function toIsoString(value: string | Date | undefined, fallbackIso: string): string {
   if (!value) return fallbackIso;
   if (value instanceof Date) return value.toISOString();
@@ -106,13 +110,20 @@ export function toBackendExercisePayload(exercise: Partial<Exercise>): Record<st
 }
 
 export function toBackendWorkoutPayload(workout: WorkoutWithExercises): Record<string, unknown> {
+  const sourcePlanRemoteId =
+    isMongoObjectId(workout.sourcePlanRemoteId)
+      ? workout.sourcePlanRemoteId
+      : isMongoObjectId(workout.sourcePlanId)
+        ? workout.sourcePlanId
+        : undefined;
+
   return {
     ...(workout.remoteId ? { _id: workout.remoteId } : {}),
     user: workout.remoteId ? undefined : workout.userId,
     date: workout.date,
     name: workout.name,
     notes: workout.notes,
-    sourcePlan: workout.sourcePlanRemoteId ?? workout.sourcePlanId,
+    ...(sourcePlanRemoteId ? { sourcePlan: sourcePlanRemoteId } : {}),
     exercises: workout.exercises.map((workoutExercise) => ({
       exercise: workoutExercise.exercise.remoteId ?? workoutExercise.exerciseId,
       sets: workoutExercise.sets

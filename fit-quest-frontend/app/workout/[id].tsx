@@ -4,6 +4,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { useSync } from '@/contexts/SyncContext';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deleteWorkout, getWorkoutById, saveWorkout } from '@/services/db/workoutDbService';
 import type { FullWorkout } from '@/services/db/workoutDbService';
 import type { ExerciseType, WorkoutExercise, WorkoutSet } from '@/types/models';
@@ -89,6 +91,7 @@ function getSetValue(set: WorkoutSet, column: TableColumn): string {
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
+  const { getPendingChanges } = useSync();
 
   const [workout, setWorkout] = useState<FullWorkout | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -132,6 +135,11 @@ export default function WorkoutDetailScreen() {
     setIsDeleting(true);
     try {
       await deleteWorkout(workout.id);
+      await addToSyncQueue('workout', workout.id, 'delete', {
+        id: workout.id,
+        remoteId: workout.remoteId ?? null,
+      });
+      await getPendingChanges();
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -206,6 +214,14 @@ export default function WorkoutDetailScreen() {
       });
 
       const savedWorkoutId = await saveWorkout(duplicatedWorkout, duplicatedExercises, duplicatedSets);
+      await addToSyncQueue('workout', savedWorkoutId, 'create', {
+        ...duplicatedWorkout,
+        id: savedWorkoutId,
+        remoteId: null,
+        exercises: duplicatedExercises,
+        sets: duplicatedSets,
+      });
+      await getPendingChanges();
       router.replace({ pathname: '/workout/[id]', params: { id: savedWorkoutId } } as never);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

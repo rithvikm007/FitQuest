@@ -4,6 +4,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { useSync } from '@/contexts/SyncContext';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deletePlan, getPlanById } from '@/services/db/planDbService';
 import type { FullPlan } from '@/services/db/planDbService';
 import type { ExerciseType, PlanSet } from '@/types/models';
@@ -81,6 +83,7 @@ function getSetValue(set: PlanSet, column: TableColumn): string {
 export default function PlanDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
+  const { getPendingChanges } = useSync();
 
   const [plan, setPlan] = useState<FullPlan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -123,6 +126,11 @@ export default function PlanDetailScreen() {
     setIsDeleting(true);
     try {
       await deletePlan(plan.id);
+      await addToSyncQueue('plan', plan.id, 'delete', {
+        id: plan.id,
+        remoteId: plan.remoteId ?? null,
+      });
+      await getPendingChanges();
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

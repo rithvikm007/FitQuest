@@ -5,12 +5,18 @@ import { getPendingCount } from '@/services/db/syncQueueService';
 import { getUser } from '@/services/db/userDbService';
 import { performSync } from '@/services/syncService';
 
+type SyncRunSummary = {
+  uploaded: number;
+  downloaded: number;
+  errors: string[];
+};
+
 type SyncContextValue = {
   isSyncing: boolean;
   lastSynced: Date | null;
   pendingCount: number;
   syncError: string | null;
-  sync: () => Promise<void>;
+  sync: () => Promise<SyncRunSummary>;
   getPendingChanges: () => Promise<void>;
 };
 
@@ -48,7 +54,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
-  const sync = useCallback(async (): Promise<void> => {
+  const sync = useCallback(async (): Promise<SyncRunSummary> => {
     if (!token) {
       const error = new Error('Not authenticated. Unable to sync.');
       setSyncError(error.message);
@@ -63,10 +69,13 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
       if (summary.errors.length > 0) {
         setSyncError(summary.errors.join('\n'));
+      } else {
+        setSyncError(null);
       }
 
       await getPendingChanges();
       await refreshLastSynced();
+      return summary;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSyncError(message);

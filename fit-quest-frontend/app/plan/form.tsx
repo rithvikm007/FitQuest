@@ -7,8 +7,10 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSync } from '@/contexts/SyncContext';
 import { getExerciseById } from '@/services/db/exerciseDbService';
 import { getPlanById, savePlan } from '@/services/db/planDbService';
+import { addToSyncQueue } from '@/services/db/syncQueueService';
 import type { Exercise, ExerciseType, Plan, PlanExercise, PlanSet } from '@/types/models';
 
 const EXERCISE_PICKER_SELECTION_KEY = '@fitquest_exercise_picker_selection';
@@ -125,6 +127,7 @@ export default function PlanFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { getPendingChanges } = useSync();
 
   const isEditMode = Boolean(id);
 
@@ -399,6 +402,17 @@ export default function PlanFormScreen() {
       });
 
       const savedPlanId = await savePlan(planPayload, planExercises, planSets);
+      const operation = existingPlan ? 'update' : 'create';
+
+      await addToSyncQueue('plan', savedPlanId, operation, {
+        ...planPayload,
+        id: savedPlanId,
+        remoteId: planPayload.remoteId ?? null,
+        exercises: planExercises,
+        sets: planSets,
+      });
+
+      await getPendingChanges();
       router.replace({ pathname: '/plan/[id]', params: { id: savedPlanId } } as never);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

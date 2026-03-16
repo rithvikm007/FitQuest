@@ -6,7 +6,10 @@ import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSync } from '@/contexts/SyncContext';
+import { getPendingCount } from '@/services/db/syncQueueService';
 
 type UserInfoDraft = {
   firstName: string;
@@ -63,6 +66,7 @@ function getBodyStatsDraftFromUser(user: {
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, isLoading, error, updateProfile, logout } = useAuth();
+  const { sync } = useSync();
 
   const [isUserInfoModalOpen, setIsUserInfoModalOpen] = useState(false);
   const [isBodyStatsModalOpen, setIsBodyStatsModalOpen] = useState(false);
@@ -193,6 +197,31 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleSyncPress = async () => {
+    try {
+      const pendingBefore = await getPendingCount();
+      const summary = await sync();
+      const pendingAfter = await getPendingCount();
+      const processed = Math.max(0, pendingBefore - pendingAfter);
+
+      if (summary.errors.length > 0) {
+        Alert.alert(
+          'Sync Incomplete',
+          `${summary.errors[0]}\n\nProcessed ${processed} change${processed === 1 ? '' : 's'}. Pending: ${pendingAfter}.`
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Sync Complete',
+        `Uploaded: ${summary.uploaded}, Downloaded: ${summary.downloaded}. Pending: ${pendingAfter}.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert('Sync Failed', message);
+    }
+  };
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-neutral-950">
@@ -205,7 +234,10 @@ export default function ProfileScreen() {
     <View className="flex-1 bg-neutral-950">
       <ScrollView className="flex-1" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
         <View className="gap-1">
-          <Text className="text-3xl font-bold text-white">Profile</Text>
+          <View className="flex-row items-start justify-between">
+            <Text className="text-3xl font-bold text-white">Profile</Text>
+            <SyncStatusIndicator onSyncPress={() => void handleSyncPress()} />
+          </View>
           <Text className="text-sm text-neutral-300">Manage your account and fitness stats.</Text>
         </View>
 
