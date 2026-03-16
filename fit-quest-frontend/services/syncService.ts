@@ -617,10 +617,19 @@ function groupQueueItems(queueItems: SyncQueueItem[]): {
 async function mergeDownloadedData(downloaded: {
   workouts?: BackendWorkoutDocument[];
   plans?: BackendPlanDocument[];
+  exercises?: BackendExerciseDocument[];
 }): Promise<number> {
   let mergedCount = 0;
   const user = await getUser();
   const fallbackUserId = user?.id ?? '';
+
+  // Import exercises
+  for (const remoteExercise of downloaded.exercises ?? []) {
+    // Always import system and user exercises
+    const normalized = toLocalExerciseRecord(remoteExercise, { idFactory: generateUuid });
+    await saveExercise(normalized);
+    mergedCount += 1;
+  }
 
   for (const remoteWorkout of downloaded.workouts ?? []) {
     const localRow = await getEntityRowByRemoteId('workout', remoteWorkout._id);

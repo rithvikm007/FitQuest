@@ -78,13 +78,28 @@ exports.sync = asyncHandler(async (req, res) => {
         updatedAt: { $gt: syncTime }
     }).populate('exercises');
 
+    // Fetch system exercises (isCustom: false) and user-created exercises (isCustom: true, user: req.user._id) updated after lastSyncAt
+    const latestExercises = await Exercise.find({
+        $and: [
+            {
+                $or: [
+                    { isCustom: false },
+                    { isCustom: true, user: req.user._id }
+                ]
+            },
+            { updatedAt: { $gt: syncTime } }
+        ]
+    });
+
+
     // Return to client
     res.json({ 
         success: true,
         uploaded: { workouts: workouts?.length || 0 },
         downloaded: { 
             workouts: latestWorkouts,
-            plans: latestPlans 
+            plans: latestPlans,
+            exercises: latestExercises
         }
     });
 });
