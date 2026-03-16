@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Input } from '@/components/common/Input';
 import { getExercises, searchExercises } from '@/services/db/exerciseDbService';
@@ -49,7 +50,7 @@ export default function ExercisePickerModalScreen() {
   };
 
   return (
-    <View className="flex-1 bg-neutral-950 px-4 pt-6">
+    <SafeAreaView className="flex-1 bg-neutral-950 px-4 pt-6" edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: 'Pick Exercise' }} />
 
       <View className="mb-3 flex-row items-center justify-between">
@@ -88,6 +89,6 @@ export default function ExercisePickerModalScreen() {
           </Pressable>
         ))}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -250,14 +251,15 @@ export default function ExerciseFormScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-neutral-950">
+      <SafeAreaView className="flex-1 items-center justify-center bg-neutral-950" edges={['top', 'bottom']}>
         <Text className="text-neutral-200">Loading exercise...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
+    <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
+      <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
       <View className="gap-1">
         <Text className="text-3xl font-bold text-white">{isEditMode ? 'Edit Exercise' : 'Create Exercise'}</Text>
         <Text className="text-sm text-neutral-300">
@@ -323,7 +325,7 @@ export default function ExerciseFormScreen() {
         </Pressable>
       </View>
 
-      <View className="mt-2 gap-3">
+        <View className="mt-2 gap-3">
         <Button
           title={isSaving ? 'Saving...' : 'Save Exercise'}
           onPress={onSave}
@@ -331,7 +333,8 @@ export default function ExerciseFormScreen() {
           disabled={isSaving}
         />
         <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={isSaving} />
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }

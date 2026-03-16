@@ -89,6 +89,18 @@ async function requireDatabase() {
   return db;
 }
 
+async function normalizeBuiltInExerciseSyncStatuses(db: Awaited<ReturnType<typeof requireDatabase>>): Promise<void> {
+  await db.runAsync(
+    `
+      UPDATE exercises
+      SET syncStatus = 'synced'
+      WHERE isCustom = 0
+        AND isDeleted = 0
+        AND syncStatus <> 'synced';
+    `
+  );
+}
+
 async function findExerciseByRemoteId(remoteId: string): Promise<Exercise | null> {
   const db = await requireDatabase();
   const rows = await db.getAllAsync<ExerciseRow>(
@@ -174,7 +186,7 @@ export async function saveExercise(exercise: Exercise): Promise<string> {
         exercise.isCustom ? 1 : 0,
         exercise.userId ?? null,
         exercise.isDeleted ? 1 : 0,
-        'pending',
+        exercise.syncStatus,
         createdAt,
         now,
       ]
@@ -190,6 +202,7 @@ export async function saveExercise(exercise: Exercise): Promise<string> {
 export async function getExercises(filters?: ExerciseFilters): Promise<Exercise[]> {
   try {
     const db = await requireDatabase();
+    await normalizeBuiltInExerciseSyncStatuses(db);
     const queryConditions: string[] = ['isDeleted = 0'];
     const queryParams: Array<string | number> = [];
 
@@ -223,6 +236,7 @@ export async function getExercises(filters?: ExerciseFilters): Promise<Exercise[
 export async function getExerciseById(id: string, includeDeleted = false): Promise<Exercise | null> {
   try {
     const db = await requireDatabase();
+    await normalizeBuiltInExerciseSyncStatuses(db);
     const deletedClause = includeDeleted ? '' : 'AND isDeleted = 0';
     const rows = await db.getAllAsync<ExerciseRow>(
       `
@@ -268,6 +282,7 @@ export async function deleteExercise(id: string): Promise<void> {
 export async function searchExercises(query: string): Promise<Exercise[]> {
   try {
     const db = await requireDatabase();
+    await normalizeBuiltInExerciseSyncStatuses(db);
     const sanitizedQuery = query.trim();
 
     if (!sanitizedQuery) {

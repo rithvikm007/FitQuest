@@ -3,6 +3,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initDatabase } from '@/database/index';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { SyncProvider } from '@/contexts/SyncContext';
@@ -49,6 +50,9 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ headerShown: false }} />
+      <Stack.Screen name="exercise/index" options={{ title: 'Exercise Library' }} />
+      <Stack.Screen name="exercise/form" options={{ title: 'Exercise' }} />
+      <Stack.Screen name="exercise/[id]" options={{ title: 'Exercise' }} />
       <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       <Stack.Screen
         name="modal/exercise-picker"
@@ -77,23 +81,27 @@ export default function RootLayout() {
 
   if (!isDbReady) {
     return (
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <View className="flex-1 items-center justify-center bg-neutral-950">
-          <ActivityIndicator size="large" color="#A556FB" />
-        </View>
-        <StatusBar style="auto" />
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <View className="flex-1 items-center justify-center bg-neutral-950">
+            <ActivityIndicator size="large" color="#A556FB" />
+          </View>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthProvider>
-        <SyncProvider>
-          <RootNavigator />
-        </SyncProvider>
-      </AuthProvider>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AuthProvider>
+          <SyncProvider>
+            <RootNavigator />
+          </SyncProvider>
+        </AuthProvider>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

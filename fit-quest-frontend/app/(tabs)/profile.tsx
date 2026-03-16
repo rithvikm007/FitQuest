@@ -1,15 +1,16 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/common/Button';
+import { ThemedAlertModal } from '@/components/common/ThemedAlertModal';
 import { Input } from '@/components/common/Input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
+import { SyncStatusChip } from '@/components/common/SyncStatusChip';
+import { ThemedConfirmModal } from '@/components/common/ThemedConfirmModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
-import { getPendingCount } from '@/services/db/syncQueueService';
 
 type UserInfoDraft = {
   firstName: string;
@@ -39,9 +40,6 @@ function toNumericField(value: string): number | undefined {
 function getUserInfoDraftFromUser(user: {
   firstName?: string;
   lastName?: string;
-  age?: number;
-  height?: number;
-  weight?: number;
 } | null): UserInfoDraft {
   return {
     firstName: user?.firstName ?? '',
@@ -50,8 +48,6 @@ function getUserInfoDraftFromUser(user: {
 }
 
 function getBodyStatsDraftFromUser(user: {
-  firstName?: string;
-  lastName?: string;
   age?: number;
   height?: number;
   weight?: number;
@@ -63,27 +59,60 @@ function getBodyStatsDraftFromUser(user: {
   };
 }
 
+function initialsFromName(firstName?: string, lastName?: string, username?: string): string {
+  const first = firstName?.trim()?.[0] ?? '';
+  const last = lastName?.trim()?.[0] ?? '';
+  if (first || last) {
+    return `${first}${last}`.toUpperCase();
+  }
+
+  return username?.trim()?.slice(0, 2).toUpperCase() ?? 'FQ';
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, isLoading, error, updateProfile, logout } = useAuth();
-  const { sync } = useSync();
+  const { pendingCount, sync, isSyncing, lastSynced } = useSync();
 
   const [isUserInfoModalOpen, setIsUserInfoModalOpen] = useState(false);
   const [isBodyStatsModalOpen, setIsBodyStatsModalOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isSavingUserInfo, setIsSavingUserInfo] = useState(false);
   const [isSavingBodyStats, setIsSavingBodyStats] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userInfoError, setUserInfoError] = useState<string | null>(null);
   const [bodyStatsError, setBodyStatsError] = useState<string | null>(null);
+  const [alertState, setAlertState] = useState<{ title: string; message: string; tone: 'info' | 'success' | 'warning' | 'error' } | null>(null);
   const [userInfoDraft, setUserInfoDraft] = useState<UserInfoDraft>(getUserInfoDraftFromUser(user));
   const [bodyStatsDraft, setBodyStatsDraft] = useState<BodyStatsDraft>(getBodyStatsDraftFromUser(user));
 
   const appVersion = useMemo(() => {
-    return (
-      Constants.expoConfig?.version ??
-      Constants.manifest2?.extra?.expoClient?.version ??
-      '1.0.0'
-    );
+    return Constants.expoConfig?.version ?? Constants.manifest2?.extra?.expoClient?.version ?? '1.0.0';
   }, []);
+
+  const profileSyncChip = useMemo(() => {
+    if (pendingCount > 0) {
+      return {
+        label: `${pendingCount} PENDING`,
+        status: 'pending' as const,
+      };
+    }
+
+    return {
+      label: 'SYNCED',
+      status: 'synced' as const,
+    };
+  }, [pendingCount]);
+
+  const displayName = useMemo(() => {
+    const first = user?.firstName?.trim();
+    const last = user?.lastName?.trim();
+    if (first || last) {
+      return `${first ?? ''} ${last ?? ''}`.trim();
+    }
+
+    return user?.username ?? 'FitQuest Member';
+  }, [user?.firstName, user?.lastName, user?.username]);
 
   const openUserInfoModal = () => {
     setUserInfoDraft(getUserInfoDraftFromUser(user));
@@ -120,18 +149,51 @@ export default function ProfileScreen() {
       return 'Age must be a positive number.';
     }
 
+    const ageValue = toNumericField(bodyStatsDraft.age);
+    if (ageValue !== undefined && (ageValue < 1 || ageValue > 150)) {
+      return 'Age must be between 1 and 150.';
+    }
+
     if (bodyStatsDraft.height.trim() && toNumericField(bodyStatsDraft.height) === undefined) {
       return 'Height must be a positive number.';
+    }
+
+    const heightValue = toNumericField(bodyStatsDraft.height);
+    if (heightValue !== undefined && (heightValue < 50 || heightValue > 300)) {
+      return 'Height must be between 50 and 300 cm.';
     }
 
     if (bodyStatsDraft.weight.trim() && toNumericField(bodyStatsDraft.weight) === undefined) {
       return 'Weight must be a positive number.';
     }
 
+    const weightValue = toNumericField(bodyStatsDraft.weight);
+    if (weightValue !== undefined && (weightValue < 20 || weightValue > 500)) {
+      return 'Weight must be between 20 and 500 kg.';
+    }
+
+    return null;
+  };
+
+  const validateUserInfoDraft = (): string | null => {
+    if (userInfoDraft.firstName.length > 50) {
+      return 'First name must be 50 characters or less.';
+    }
+
+    if (userInfoDraft.lastName.length > 50) {
+      return 'Last name must be 50 characters or less.';
+    }
+
     return null;
   };
 
   const handleSaveUserInfo = async () => {
+    const validationError = validateUserInfoDraft();
+    if (validationError) {
+      setUserInfoError(validationError);
+      return;
+    }
+
     setIsSavingUserInfo(true);
     setUserInfoError(null);
 
@@ -177,133 +239,193 @@ export default function ProfileScreen() {
   };
 
   const confirmLogout = () => {
-    Alert.alert('Log Out', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log Out',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            try {
-              await logout();
-              router.replace('/login');
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              Alert.alert('Logout Failed', message);
-            }
-          })();
-        },
-      },
-    ]);
+    setIsLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setIsLogoutModalOpen(false);
+      router.replace('/login');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setIsLogoutModalOpen(false);
+      setAlertState({
+        title: 'Logout Failed',
+        message,
+        tone: 'error',
+      });
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const handleSyncPress = async () => {
     try {
-      const pendingBefore = await getPendingCount();
       const summary = await sync();
-      const pendingAfter = await getPendingCount();
-      const processed = Math.max(0, pendingBefore - pendingAfter);
 
       if (summary.errors.length > 0) {
-        Alert.alert(
-          'Sync Incomplete',
-          `${summary.errors[0]}\n\nProcessed ${processed} change${processed === 1 ? '' : 's'}. Pending: ${pendingAfter}.`
-        );
+        setAlertState({
+          title: 'Sync Incomplete',
+          message: summary.errors[0],
+          tone: 'warning',
+        });
         return;
       }
 
-      Alert.alert(
-        'Sync Complete',
-        `Uploaded: ${summary.uploaded}, Downloaded: ${summary.downloaded}. Pending: ${pendingAfter}.`
-      );
+      setAlertState({
+        title: 'Sync Complete',
+        message: `Uploaded ${summary.uploaded}, downloaded ${summary.downloaded}.`,
+        tone: 'success',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      Alert.alert('Sync Failed', message);
+      setAlertState({
+        title: 'Sync Failed',
+        message,
+        tone: 'error',
+      });
     }
   };
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-neutral-950">
+      <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
         <LoadingSpinner />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View className="flex-1 bg-neutral-950">
-      <ScrollView className="flex-1" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
-        <View className="gap-1">
-          <View className="flex-row items-start justify-between">
-            <Text className="text-3xl font-bold text-white">Profile</Text>
-            <SyncStatusIndicator onSyncPress={() => void handleSyncPress()} />
+    <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
+      <ScrollView className="flex-1" contentContainerClassName="px-5 pb-24 pt-6">
+        <View className="items-center">
+          <View className="h-28 w-28 items-center justify-center rounded-full border-4 border-[#9F6DFD] bg-[#232327]">
+            <Text className="text-4xl font-black text-white">{initialsFromName(user?.firstName, user?.lastName, user?.username)}</Text>
           </View>
-          <Text className="text-sm text-neutral-300">Manage your account and fitness stats.</Text>
+          <Text className="mt-4 text-3xl font-black text-white">{displayName}</Text>
+          <Text className="mt-1 text-base text-neutral-400">{user?.email ?? 'No email available'}</Text>
         </View>
 
-        {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
+        {error ? <Text className="mt-4 text-sm text-red-300">{error}</Text> : null}
 
-        <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-          <Text className="text-sm font-semibold uppercase tracking-wide text-primary">User Info</Text>
-          <View className="mt-3 gap-2">
-            <Text className="text-sm text-neutral-300">Username</Text>
-            <Text className="text-base font-semibold text-white">{user?.username ?? 'Unknown'}</Text>
-            <Text className="mt-2 text-sm text-neutral-300">Email</Text>
-            <Text className="text-base font-semibold text-white">{user?.email ?? 'Unknown'}</Text>
-            <Text className="mt-2 text-sm text-neutral-300">First Name</Text>
-            <Text className="text-base font-semibold text-white">{user?.firstName ?? 'Not set'}</Text>
-            <Text className="mt-2 text-sm text-neutral-300">Last Name</Text>
-            <Text className="text-base font-semibold text-white">{user?.lastName ?? 'Not set'}</Text>
+        <View className="mt-8">
+          <View className="mb-3 flex-row items-end justify-between">
+            <Text className="text-2xl font-bold text-white">Body Stats</Text>
+            <Pressable onPress={openBodyStatsModal}>
+              <Text className="text-sm font-semibold text-[#DBB8FF]">Edit</Text>
+            </Pressable>
           </View>
 
-          <Pressable className="mt-4 items-center rounded-lg bg-secondary px-3 py-2" onPress={openUserInfoModal}>
-            <Text className="text-sm font-semibold text-white">Edit Name</Text>
-          </Pressable>
-        </View>
-
-        <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-          <Text className="text-sm font-semibold uppercase tracking-wide text-primary">Body Stats</Text>
-          <View className="mt-3 gap-2">
-            <Text className="text-sm text-neutral-300">Age</Text>
-            <Text className="text-base font-semibold text-white">{user?.age ?? 'Not set'}</Text>
-            <Text className="mt-2 text-sm text-neutral-300">Height (cm)</Text>
-            <Text className="text-base font-semibold text-white">{user?.height ?? 'Not set'}</Text>
-            <Text className="mt-2 text-sm text-neutral-300">Weight (kg)</Text>
-            <Text className="text-base font-semibold text-white">{user?.weight ?? 'Not set'}</Text>
-          </View>
-
-          <Pressable className="mt-4 items-center rounded-lg bg-primary px-3 py-2" onPress={openBodyStatsModal}>
-            <Text className="text-sm font-semibold text-white">Update Stats</Text>
-          </Pressable>
-        </View>
-
-        <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-          <Text className="text-sm font-semibold uppercase tracking-wide text-primary">Settings</Text>
-          <Pressable className="mt-3 items-center rounded-lg bg-red-600 px-3 py-2" onPress={confirmLogout}>
-            <Text className="text-sm font-semibold text-white">Logout</Text>
-          </Pressable>
-        </View>
-
-        <View className="rounded-2xl border border-primary bg-primary/15 p-4">
-          <Text className="text-sm font-semibold uppercase tracking-wide text-primary">About</Text>
-          <Text className="mt-2 text-sm text-white">FitQuest</Text>
-          <Text className="mt-1 text-sm text-neutral-200">Version {appVersion}</Text>
-        </View>
-      </ScrollView>
-
-      <Modal visible={isUserInfoModalOpen} transparent animationType="slide" onRequestClose={closeUserInfoModal}>
-        <View className="flex-1 bg-black/70">
-          <View className="mt-16 flex-1 rounded-t-3xl border border-neutral-800 bg-neutral-950 p-4">
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="text-xl font-bold text-white">Edit User Info</Text>
-              <Pressable className="rounded-lg bg-neutral-800 px-3 py-2" onPress={closeUserInfoModal}>
-                <Text className="font-semibold text-white">Close</Text>
+          <View className="rounded-3xl border border-white/10 bg-[#1B1B1F] p-5">
+            <View className="flex-row items-end justify-between">
+              <View>
+                <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Current Weight</Text>
+                <Text className="mt-1 text-4xl font-black text-[#DBB8FF]">{user?.weight ?? '--'}</Text>
+              </View>
+              <Pressable className="rounded-xl bg-[#6F31F5] px-3 py-2" onPress={openBodyStatsModal}>
+                <Text className="text-sm font-semibold text-white">Update</Text>
               </Pressable>
             </View>
 
-            {userInfoError ? <Text className="mb-2 text-sm text-red-400">{userInfoError}</Text> : null}
+            <View className="mt-5 flex-row gap-3">
+              <View className="flex-1 rounded-2xl border border-white/10 bg-[#222227] p-3">
+                <Text className="text-xs uppercase tracking-[1px] text-neutral-400">Age</Text>
+                <Text className="mt-1 text-2xl font-bold text-white">{user?.age ?? '--'}</Text>
+              </View>
+              <View className="flex-1 rounded-2xl border border-white/10 bg-[#222227] p-3">
+                <Text className="text-xs uppercase tracking-[1px] text-neutral-400">Height</Text>
+                <Text className="mt-1 text-2xl font-bold text-white">{user?.height ?? '--'} cm</Text>
+              </View>
+            </View>
+          </View>
+        </View>
 
-            <ScrollView className="flex-1" contentContainerClassName="gap-3 pb-6">
+        <View className="mt-6 rounded-3xl border border-white/10 bg-[#1B1B1F] p-5">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-2xl font-bold text-white">Cloud Sync</Text>
+            <SyncStatusChip status={profileSyncChip.status} label={profileSyncChip.label} />
+          </View>
+
+          <View className="mt-4 gap-2">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm text-neutral-400">Last backup</Text>
+              <Text className="text-sm font-medium text-white">
+                {lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}
+              </Text>
+            </View>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm text-neutral-400">Queued changes</Text>
+              <Text className="text-sm font-medium text-white">{pendingCount}</Text>
+            </View>
+          </View>
+
+          <Pressable
+            className="mt-5 rounded-2xl bg-[#6F31F5] py-4"
+            onPress={() => void handleSyncPress()}
+            disabled={isSyncing}
+          >
+            <Text className="text-center text-lg font-bold text-white">{isSyncing ? 'Syncing...' : 'Sync Now'}</Text>
+          </Pressable>
+        </View>
+
+        <View className="mt-6 rounded-3xl border border-white/10 bg-[#1B1B1F] p-4">
+          <Text className="mb-2 text-2xl font-bold text-white">Settings</Text>
+
+          <Pressable className="rounded-xl border border-white/10 bg-[#25252A] px-4 py-3" onPress={openUserInfoModal}>
+            <Text className="text-base font-semibold text-white">Edit User Info</Text>
+          </Pressable>
+
+          <Pressable className="mt-3 rounded-xl border border-red-300/20 bg-red-400/10 px-4 py-3" onPress={confirmLogout}>
+            <Text className="text-base font-semibold text-red-300">Logout</Text>
+          </Pressable>
+        </View>
+
+        <Text className="mt-8 text-center text-xs uppercase tracking-[2px] text-neutral-500">FitQuest v{appVersion}</Text>
+      </ScrollView>
+
+      <ThemedConfirmModal
+        visible={isLogoutModalOpen}
+        title="Log Out"
+        message="Are you sure you want to log out?"
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        tone="danger"
+        isLoading={isLoggingOut}
+        onCancel={() => {
+          if (!isLoggingOut) {
+            setIsLogoutModalOpen(false);
+          }
+        }}
+        onConfirm={() => void handleConfirmLogout()}
+      />
+
+      <ThemedAlertModal
+        visible={alertState !== null}
+        title={alertState?.title ?? ''}
+        message={alertState?.message ?? ''}
+        tone={alertState?.tone ?? 'info'}
+        onClose={() => setAlertState(null)}
+      />
+
+      <Modal visible={isUserInfoModalOpen} transparent animationType="slide" onRequestClose={closeUserInfoModal}>
+        <View className="flex-1 justify-end bg-black/70">
+          <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
+            <View className="mb-4 flex-row items-center justify-between">
+              <Text className="text-2xl font-bold text-white">Edit User Info</Text>
+              <Pressable onPress={closeUserInfoModal}>
+                <Text className="text-sm font-semibold text-neutral-300">Close</Text>
+              </Pressable>
+            </View>
+
+            {userInfoError ? <Text className="mb-2 text-sm text-red-300">{userInfoError}</Text> : null}
+
+            <View className="gap-3 pb-4">
               <Input
                 label="First Name"
                 value={userInfoDraft.firstName}
@@ -317,36 +439,33 @@ export default function ProfileScreen() {
                 placeholder="Last name"
               />
 
-              <Button
-                title={isSavingUserInfo ? 'Saving...' : 'Save User Info'}
-                onPress={handleSaveUserInfo}
+              <Pressable
+                className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
+                onPress={() => void handleSaveUserInfo()}
                 disabled={isSavingUserInfo}
-                loading={isSavingUserInfo}
-              />
-              <Button
-                title="Cancel"
-                variant="outline"
-                onPress={closeUserInfoModal}
-                disabled={isSavingUserInfo}
-              />
-            </ScrollView>
-          </View>
+              >
+                <Text className="text-center text-base font-bold text-white">
+                  {isSavingUserInfo ? 'Saving...' : 'Save User Info'}
+                </Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
       <Modal visible={isBodyStatsModalOpen} transparent animationType="slide" onRequestClose={closeBodyStatsModal}>
-        <View className="flex-1 bg-black/70">
-          <View className="mt-16 flex-1 rounded-t-3xl border border-neutral-800 bg-neutral-950 p-4">
+        <View className="flex-1 justify-end bg-black/70">
+          <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
             <View className="mb-4 flex-row items-center justify-between">
-              <Text className="text-xl font-bold text-white">Update Body Stats</Text>
-              <Pressable className="rounded-lg bg-neutral-800 px-3 py-2" onPress={closeBodyStatsModal}>
-                <Text className="font-semibold text-white">Close</Text>
+              <Text className="text-2xl font-bold text-white">Update Body Stats</Text>
+              <Pressable onPress={closeBodyStatsModal}>
+                <Text className="text-sm font-semibold text-neutral-300">Close</Text>
               </Pressable>
             </View>
 
-            {bodyStatsError ? <Text className="mb-2 text-sm text-red-400">{bodyStatsError}</Text> : null}
+            {bodyStatsError ? <Text className="mb-2 text-sm text-red-300">{bodyStatsError}</Text> : null}
 
-            <ScrollView className="flex-1" contentContainerClassName="gap-3 pb-6">
+            <View className="gap-3 pb-4">
               <Input
                 label="Age"
                 value={bodyStatsDraft.age}
@@ -369,22 +488,19 @@ export default function ProfileScreen() {
                 placeholder="Weight"
               />
 
-              <Button
-                title={isSavingBodyStats ? 'Saving...' : 'Save Body Stats'}
-                onPress={handleSaveBodyStats}
+              <Pressable
+                className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
+                onPress={() => void handleSaveBodyStats()}
                 disabled={isSavingBodyStats}
-                loading={isSavingBodyStats}
-              />
-              <Button
-                title="Cancel"
-                variant="outline"
-                onPress={closeBodyStatsModal}
-                disabled={isSavingBodyStats}
-              />
-            </ScrollView>
-          </View>
+              >
+                <Text className="text-center text-base font-bold text-white">
+                  {isSavingBodyStats ? 'Saving...' : 'Save Stats'}
+                </Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }

@@ -1,104 +1,68 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Input } from '@/components/common/Input';
-import { SyncStatusIndicator } from '@/components/common/SyncStatusIndicator';
-import { useAuth } from '@/contexts/AuthContext';
+import { ThemedAlertModal } from '@/components/common/ThemedAlertModal';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { SyncStatusChip } from '@/components/common/SyncStatusChip';
 import { useSync } from '@/contexts/SyncContext';
-import { fetchExercises } from '@/services/api';
-import { getPendingCount } from '@/services/db/syncQueueService';
-import { getExercises } from '@/services/db/exerciseDbService';
-import { getExerciseById, saveExercise } from '@/services/db/exerciseDbService';
-import { isCompleteBackendExerciseDocument, toLocalExerciseRecord } from '@/services/syncMappers';
-import type { Equipment, Exercise, ExerciseCategory } from '@/types/models';
+import { getWorkoutById, getWorkouts } from '@/services/db/workoutDbService';
+import type { SyncStatus, Workout } from '@/types/models';
 
-const CATEGORY_FILTERS: Array<{ label: string; value: ExerciseCategory | 'all' }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Chest', value: 'chest' },
-  { label: 'Back', value: 'back' },
-  { label: 'Shoulders', value: 'shoulders' },
-  { label: 'Legs', value: 'legs' },
-  { label: 'Arms', value: 'arms' },
-  { label: 'Core', value: 'core' },
-  { label: 'Cardio', value: 'cardio' },
-];
+type WorkoutListItem = Workout & {
+  exerciseCount: number;
+};
 
-function getEquipmentIconName(equipment: Equipment): keyof typeof Ionicons.glyphMap {
-  switch (equipment) {
-    case 'barbell':
-    case 'olympic barbell':
-    case 'smith machine':
-      return 'barbell-outline';
-    case 'dumbbell':
-    case 'kettlebell':
-    case 'weight plate':
-      return 'fitness-outline';
-    case 'band':
-    case 'resistance band':
-    case 'rope':
-      return 'git-branch-outline';
-    case 'body weight':
-      return 'body-outline';
-    case 'machine':
-    case 'cable':
-      return 'hardware-chip-outline';
-    case 'medicine ball':
-    case 'stability ball':
-      return 'american-football-outline';
-    case 'step':
-      return 'trail-sign-outline';
-    case 'sled':
-    case 'tire':
-      return 'car-sport-outline';
-    default:
-      return 'barbell-outline';
+function formatWorkoutDate(dateIso: string): string {
+  const date = new Date(dateIso);
+  if (Number.isNaN(date.getTime())) {
+    return dateIso;
   }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
-export default function ExercisesScreen() {
+function getSyncBadge(status: SyncStatus): { label: 'SYNCED' | 'FAILED' | 'PENDING'; status: 'synced' | 'failed' | 'pending' } {
+  if (status === 'synced') {
+    return {
+      label: 'SYNCED',
+      status: 'synced',
+    };
+  }
+
+  if (status === 'failed') {
+    return {
+      label: 'FAILED',
+      status: 'failed',
+    };
+  }
+
+  return {
+    label: 'PENDING',
+    status: 'pending',
+  };
+}
+
+export default function WorkoutsScreen() {
   const router = useRouter();
-  const { token } = useAuth();
-  const { sync } = useSync();
+  const { sync, pendingCount } = useSync();
+  const insets = useSafeAreaInsets();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ExerciseCategory | 'all'>('all');
-  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [workouts, setWorkouts] = useState<WorkoutListItem[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [alertState, setAlertState] = useState<{ title: string; message: string; tone: 'info' | 'success' | 'warning' | 'error' } | null>(null);
 
-  const syncExercisesFromBackend = async () => {
-    if (!token) {
-      return;
-    }
-
-    const backendExercises = await fetchExercises(token);
-    const now = new Date().toISOString();
-
-    for (const backendExercise of backendExercises) {
-      if (!isCompleteBackendExerciseDocument(backendExercise)) {
-        continue;
-      }
-
-      const existingLocal = await getExerciseById(backendExercise._id, true);
-
-      // Keep local tombstones authoritative until explicit delete sync handling is wired.
-      if (existingLocal?.isDeleted) {
-        continue;
-      }
-
-      const mapped = toLocalExerciseRecord(backendExercise, {
-        existingLocalId: existingLocal?.id,
-        nowIso: now,
-      });
-      await saveExercise(mapped);
-    }
-  };
-
-  const loadExercises = useCallback(async (refresh = false, hydrateFromBackend = false) => {
+  const loadWorkouts = useCallback(async (refresh = false) => {
     try {
       if (refresh) {
         setIsRefreshing(true);
@@ -106,19 +70,18 @@ export default function ExercisesScreen() {
         setIsLoading(true);
       }
 
-      if (hydrateFromBackend) {
-        await syncExercisesFromBackend();
-      }
+      const baseWorkouts = await getWorkouts(1, 60);
+      const withExerciseCount = await Promise.all(
+        baseWorkouts.map(async (workout) => {
+          const detail = await getWorkoutById(workout.id);
+          return {
+            ...workout,
+            exerciseCount: detail?.exercises.length ?? 0,
+          };
+        })
+      );
 
-      const loadedExercises = await getExercises();
-
-      if (!hydrateFromBackend && loadedExercises.length === 0) {
-        // Seed local cache from backend the first time if available.
-        await syncExercisesFromBackend();
-      }
-
-      const refreshedExercises = await getExercises();
-      setExercises(refreshedExercises);
+      setWorkouts(withExerciseCount);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -127,151 +90,151 @@ export default function ExercisesScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [token]);
-
-  useEffect(() => {
-    loadExercises();
-  }, [loadExercises]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      // Refresh local list when returning from detail/form screens.
-      loadExercises(false, false);
-    }, [loadExercises])
+      void loadWorkouts(false);
+    }, [loadWorkouts])
   );
 
-  const filteredExercises = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    return exercises.filter((exercise) => {
-      const categoryMatches = selectedCategory === 'all' || exercise.category === selectedCategory;
-      const searchMatches =
-        !normalizedQuery ||
-        exercise.name.toLowerCase().includes(normalizedQuery) ||
-        (exercise.description ?? '').toLowerCase().includes(normalizedQuery);
-
-      return categoryMatches && searchMatches;
-    });
-  }, [exercises, searchQuery, selectedCategory]);
-
   const onRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await sync();
-    } catch {
-      // Keep local reload behavior even if remote sync fails.
-    } finally {
-      await loadExercises(true, true);
-    }
+    await loadWorkouts(true);
   };
 
-  const handleSyncPress = useCallback(async () => {
+  const handleSync = useCallback(async () => {
     try {
-      const pendingBefore = await getPendingCount();
       const summary = await sync();
-      await loadExercises(true, true);
-      const pendingAfter = await getPendingCount();
-      const processed = Math.max(0, pendingBefore - pendingAfter);
+      await loadWorkouts(true);
 
       if (summary.errors.length > 0) {
-        Alert.alert(
-          'Sync Incomplete',
-          `${summary.errors[0]}\n\nProcessed ${processed} change${processed === 1 ? '' : 's'}. Pending: ${pendingAfter}.`
-        );
+        setAlertState({
+          title: 'Sync Incomplete',
+          message: summary.errors[0],
+          tone: 'warning',
+        });
         return;
       }
 
-      Alert.alert(
-        'Sync Complete',
-        `Uploaded: ${summary.uploaded}, Downloaded: ${summary.downloaded}. Pending: ${pendingAfter}.`
-      );
+      setAlertState({
+        title: 'Sync Complete',
+        message: `Uploaded ${summary.uploaded}, downloaded ${summary.downloaded}.`,
+        tone: 'success',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      Alert.alert('Sync Failed', message);
+      setAlertState({
+        title: 'Sync Failed',
+        message,
+        tone: 'error',
+      });
     }
-  }, [loadExercises, sync]);
+  }, [loadWorkouts, sync]);
+
+  const filteredWorkouts = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+
+    if (!query) {
+      return workouts;
+    }
+
+    return workouts.filter((item) => (item.name?.toLowerCase() ?? '').includes(query));
+  }, [searchText, workouts]);
+
+  if (isLoading) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
+        <LoadingSpinner />
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-neutral-950">
-      <View className="gap-3 px-4 pb-2 pt-5">
-        <View className="flex-row items-start justify-between">
-          <Text className="text-3xl font-bold text-white">Exercises</Text>
-          <SyncStatusIndicator onSyncPress={() => void handleSyncPress()} />
+    <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
+      <View className="bg-[#0B0B0D] px-5 pb-4 pt-6">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-2xl font-bold text-white">History</Text>
+          <Pressable
+            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5"
+            onPress={() => void handleSync()}
+          >
+            <Text className="text-xs font-semibold text-[#DBB8FF]">{pendingCount} Pending</Text>
+          </Pressable>
         </View>
+        <Text className="mt-2 text-sm uppercase tracking-[2px] text-neutral-400">Tracking your kinetic progress</Text>
+      </View>
 
-        <Input
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search exercises"
-          autoCapitalize="none"
-        />
+      {error ? <Text className="px-5 pt-2 text-sm text-red-300">{error}</Text> : null}
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-1">
-          <View className="flex-row gap-2 px-1">
-            {CATEGORY_FILTERS.map((filter) => {
-              const isActive = filter.value === selectedCategory;
-              return (
-                <Pressable
-                  key={filter.value}
-                  className={`rounded-full border px-3 py-2 ${isActive ? 'border-primary bg-primary' : 'border-neutral-700 bg-neutral-900'}`}
-                  onPress={() => setSelectedCategory(filter.value)}
-                >
-                  <Text className={`text-xs font-semibold ${isActive ? 'text-white' : 'text-neutral-200'}`}>
-                    {filter.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </ScrollView>
-
-        {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
+      <View className="flex-row items-center gap-3 px-5 pt-4">
+        <View className="flex-1 rounded-2xl border border-white/10 bg-[#1D1D20] px-4 py-3">
+          <TextInput
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="Search workouts..."
+            placeholderTextColor="#71717A"
+            className="text-base text-white"
+          />
+        </View>
+        <View className="h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#1D1D20]">
+          <Text className="text-lg text-[#DBB8FF]">☷</Text>
+        </View>
       </View>
 
       <FlatList
-        data={filteredExercises}
+        data={filteredWorkouts}
         keyExtractor={(item) => item.id}
         className="flex-1"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120, paddingTop: 8 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 + insets.bottom, paddingTop: 16, gap: 14 }}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#A556FB" />}
         ListEmptyComponent={
-          <View className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <Text className="text-sm text-neutral-200">
-              {isLoading ? 'Loading exercises...' : 'No exercises found. Pull to refresh.'}
-            </Text>
+          <View className="rounded-3xl border border-white/10 bg-[#1B1B1F] p-5">
+            <Text className="text-sm text-neutral-300">No workouts found.</Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable
-            className="mb-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4"
-            onPress={() =>
-              router.push({ pathname: '/exercise/[id]', params: { id: item.id } } as never)
-            }
-          >
-            <View className="flex-row items-center justify-between gap-3">
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-white">{item.name}</Text>
-                <Text className="mt-1 text-sm text-neutral-300" numberOfLines={2}>
-                  {item.description || 'No description'}
-                </Text>
+        renderItem={({ item }) => {
+          const syncBadge = getSyncBadge(item.syncStatus);
+
+          return (
+            <Pressable
+              className="rounded-3xl border border-white/10 bg-[#1B1B1F] p-5"
+              onPress={() => router.push({ pathname: '/workout/[id]', params: { id: item.id } } as never)}
+            >
+              <View className="flex-row items-start justify-between gap-3">
+                <View className="flex-1">
+                  <Text className="text-lg font-bold text-white">{item.name?.trim() || 'Workout Session'}</Text>
+                  <Text className="mt-1 text-sm uppercase tracking-[1px] text-neutral-400">{formatWorkoutDate(item.date)}</Text>
+                </View>
+
+                <SyncStatusChip status={syncBadge.status} label={syncBadge.label} />
               </View>
 
-              <Ionicons name={getEquipmentIconName(item.equipment)} size={22} color="#A556FB" />
-            </View>
-
-            <View className="mt-3 self-start rounded-full border border-secondary bg-secondary/30 px-3 py-1">
-              <Text className="text-xs font-semibold capitalize text-white">{item.category}</Text>
-            </View>
-          </Pressable>
-        )}
+              <View className="mt-6 flex-row items-center justify-between">
+                <Text className="text-base font-semibold text-neutral-100">
+                  {item.exerciseCount} exercise{item.exerciseCount === 1 ? '' : 's'}
+                </Text>
+                {item.syncStatus === 'failed' ? <Text className="text-xs font-semibold text-red-300">Needs next sync</Text> : null}
+              </View>
+            </Pressable>
+          );
+        }}
       />
 
       <Pressable
-        className="absolute bottom-6 right-6 h-14 w-14 items-center justify-center rounded-full bg-primary"
-        onPress={() => router.push({ pathname: '/exercise/form' } as never)}
+        className="absolute right-6 h-16 w-16 items-center justify-center rounded-full bg-[#7A3BFF]"
+        style={{ bottom: Math.max(insets.bottom, 8) + 16 }}
+        onPress={() => router.push('/workout/form' as never)}
       >
-        <Text className="text-3xl font-semibold leading-none text-white">+</Text>
+        <Text className="text-3xl leading-none text-white">+</Text>
       </Pressable>
-    </View>
+
+      <ThemedAlertModal
+        visible={alertState !== null}
+        title={alertState?.title ?? ''}
+        message={alertState?.message ?? ''}
+        tone={alertState?.tone ?? 'info'}
+        onClose={() => setAlertState(null)}
+      />
+    </SafeAreaView>
   );
 }

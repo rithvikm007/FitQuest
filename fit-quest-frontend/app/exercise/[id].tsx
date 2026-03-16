@@ -1,8 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { ThemedConfirmModal } from '@/components/common/ThemedConfirmModal';
 import { useSync } from '@/contexts/SyncContext';
 import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deleteExercise, getExerciseById } from '@/services/db/exerciseDbService';
@@ -17,6 +19,7 @@ export default function ExerciseDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const loadExercise = async () => {
     if (!id) {
@@ -55,6 +58,7 @@ export default function ExerciseDetailScreen() {
         remoteId: exercise.remoteId ?? null,
       });
       await getPendingChanges();
+      setIsDeleteModalOpen(false);
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -64,10 +68,7 @@ export default function ExerciseDetailScreen() {
   };
 
   const confirmDelete = () => {
-    Alert.alert('Delete Exercise', 'Are you sure you want to delete this exercise?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: handleDeleteExercise },
-    ]);
+    setIsDeleteModalOpen(true);
   };
 
   const openVideoUrl = async (url: string) => {
@@ -81,15 +82,15 @@ export default function ExerciseDetailScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-neutral-950">
+      <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
         <LoadingSpinner />
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!exercise) {
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-neutral-950 px-6">
+      <SafeAreaView className="flex-1 items-center justify-center gap-3 bg-neutral-950 px-6" edges={['top', 'bottom']}>
         <Text className="text-xl font-bold text-white">Exercise Not Found</Text>
         <Text className="text-center text-sm text-neutral-300">
           {error ?? 'This exercise may have been deleted or does not exist.'}
@@ -97,12 +98,13 @@ export default function ExerciseDetailScreen() {
         <Pressable className="rounded-xl bg-primary px-4 py-2" onPress={() => router.back()}>
           <Text className="font-semibold text-white">Go Back</Text>
         </Pressable>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
+    <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
+      <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
       <View className="flex-row items-center justify-between">
         <Pressable className="rounded-lg bg-neutral-900 px-3 py-2" onPress={() => router.back()}>
           <Text className="font-semibold text-white">Back</Text>
@@ -174,7 +176,7 @@ export default function ExerciseDetailScreen() {
         )}
       </View>
 
-      {exercise.videoUrl ? (
+        {exercise.videoUrl ? (
         <Pressable
           className="rounded-2xl border border-primary bg-primary/20 p-4"
           onPress={() => openVideoUrl(exercise.videoUrl!)}
@@ -185,7 +187,24 @@ export default function ExerciseDetailScreen() {
             {exercise.videoUrl}
           </Text>
         </Pressable>
-      ) : null}
-    </ScrollView>
+        ) : null}
+      </ScrollView>
+
+      <ThemedConfirmModal
+        visible={isDeleteModalOpen}
+        title="Delete Exercise"
+        message="Are you sure you want to delete this exercise?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        tone="danger"
+        isLoading={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) {
+            setIsDeleteModalOpen(false);
+          }
+        }}
+        onConfirm={() => void handleDeleteExercise()}
+      />
+    </SafeAreaView>
   );
 }

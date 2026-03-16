@@ -1,24 +1,25 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function WorkoutModal() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <Ionicons name="barbell" size={64} color="#4F46E5" style={{ marginBottom: 20 }} />
       <Text style={styles.title}>Log Workout</Text>
       <Text style={styles.subtitle}>Feature coming soon!</Text>
       <Text style={styles.text}>• Select exercises from library</Text>
       <Text style={styles.text}>• Log sets, reps, and weights</Text>
       <Text style={styles.text}>• Track progress automatically</Text>
-      <Text style={styles.text}>• Get PR notifications</Text>
+      <Text style={styles.text}>• Sync updates when online</Text>
       
       <TouchableOpacity style={styles.button} onPress={() => router.back()}>
         <Text style={styles.buttonText}>Close</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 

@@ -3,8 +3,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
@@ -424,19 +424,22 @@ export default function PlanFormScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-neutral-950">
+      <SafeAreaView className="flex-1 items-center justify-center bg-neutral-950" edges={['top', 'bottom']}>
         <Text className="text-neutral-200">Loading plan form...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View className="flex-1 bg-neutral-950">
+    <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: isEditMode ? 'Edit Plan' : 'New Plan' }} />
 
-      <ScrollView className="flex-1" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
-        <View className="gap-1">
-          <Text className="text-3xl font-bold text-white">{isEditMode ? 'Edit Plan' : 'New Plan'}</Text>
+      <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-32 pt-6">
+        <View className="gap-2">
+          <View className="self-start rounded-full border border-white/10 bg-[#1E1E22] px-3 py-1.5">
+            <Text className="text-xs uppercase tracking-[2px] text-amber-300">Builder Mode</Text>
+          </View>
+          <Text className="text-5xl font-black text-[#DBB8FF]">Architect Your Growth.</Text>
           <Text className="text-sm text-neutral-300">Build your workout template with target sets.</Text>
         </View>
 
@@ -457,17 +460,17 @@ export default function PlanFormScreen() {
           autoCapitalize="none"
         />
 
-        <View className="gap-3 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+        <View className="gap-3 rounded-3xl border border-white/10 bg-[#1B1B1F] p-4">
           <View className="flex-row items-center justify-between">
-            <Text className="text-lg font-semibold text-white">Exercises</Text>
+            <Text className="text-2xl font-bold text-white">Template Exercises</Text>
             <Pressable
-              className="rounded-lg bg-primary px-3 py-2"
+              className="rounded-xl border border-[#6F31F5] bg-[#241A36] px-3 py-2"
               onPress={() => {
                 setError(null);
                 router.push('/modal/exercise-picker' as never);
               }}
             >
-              <Text className="text-sm font-semibold text-white">Add Exercise</Text>
+              <Text className="text-sm font-semibold text-[#DBB8FF]">Add Exercise</Text>
             </Pressable>
           </View>
 
@@ -479,27 +482,27 @@ export default function PlanFormScreen() {
                 const columns = getColumnsForExerciseType(draftExercise.exercise.type);
 
                 return (
-                  <View key={draftExercise.id} className="rounded-xl border border-neutral-800 bg-neutral-950/50 p-3">
+                  <View key={draftExercise.id} className="rounded-2xl border border-white/10 bg-[#121214] p-4">
                     <View className="flex-row items-center justify-between">
                       <View className="flex-1 pr-2">
-                        <Text className="text-base font-semibold text-white">{draftExercise.exercise.name}</Text>
-                        <Text className="text-xs capitalize text-neutral-400">{draftExercise.exercise.type}</Text>
+                        <Text className="text-2xl font-bold text-white">{draftExercise.exercise.name}</Text>
+                        <Text className="mt-1 text-xs uppercase tracking-[1px] text-[#DBB8FF]">{draftExercise.exercise.type}</Text>
                       </View>
                       <Pressable
-                        className="rounded-lg bg-red-600 px-3 py-1.5"
+                        className="rounded-full border border-red-300/20 bg-red-400/10 px-3 py-1.5"
                         onPress={() => removeExerciseFromDraft(draftExercise.id)}
                       >
-                        <Text className="text-xs font-semibold text-white">Remove</Text>
+                        <Text className="text-xs font-semibold text-red-300">Remove</Text>
                       </Pressable>
                     </View>
 
                     <View className="mt-3 gap-3">
                       {draftExercise.sets.map((draftSet, setIndex) => (
-                        <View key={draftSet.id} className="rounded-lg border border-neutral-700 bg-neutral-900 p-3">
+                        <View key={draftSet.id} className="rounded-xl border border-white/10 bg-[#1D1D20] p-3">
                           <View className="mb-2 flex-row items-center justify-between">
                             <Text className="text-sm font-semibold text-white">Set {setIndex + 1}</Text>
                             <Pressable
-                              className="rounded bg-neutral-800 px-2 py-1"
+                              className="rounded-lg border border-white/10 bg-[#2B2B30] px-2 py-1"
                               onPress={() => removeSetFromExercise(draftExercise.id, draftSet.id)}
                             >
                               <Text className="text-xs text-neutral-200">Remove</Text>
@@ -569,7 +572,7 @@ export default function PlanFormScreen() {
                     </View>
 
                     <Pressable
-                      className="mt-3 self-start rounded-lg bg-neutral-800 px-3 py-2"
+                      className="mt-3 self-start rounded-lg border border-white/10 bg-[#2B2B30] px-3 py-2"
                       onPress={() => addSetToExercise(draftExercise.id)}
                     >
                       <Text className="text-sm font-semibold text-white">Add Set</Text>
@@ -581,16 +584,23 @@ export default function PlanFormScreen() {
           )}
         </View>
 
-        <View className="gap-3">
-          <Button
-            title={isSaving ? 'Saving...' : 'Save Plan'}
-            onPress={onSave}
-            loading={isSaving}
+        <View className="flex-row gap-3">
+          <Pressable
+            className="flex-[1.5] rounded-2xl bg-[#6F31F5] py-4"
+            onPress={() => void onSave()}
             disabled={isSaving}
-          />
-          <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={isSaving} />
+          >
+            <Text className="text-center text-lg font-bold text-white">{isSaving ? 'Saving...' : 'Create Plan'}</Text>
+          </Pressable>
+          <Pressable
+            className="flex-1 rounded-2xl border border-white/10 bg-[#202025] py-4"
+            onPress={() => router.back()}
+            disabled={isSaving}
+          >
+            <Text className="text-center text-base font-semibold text-neutral-300">Cancel</Text>
+          </Pressable>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

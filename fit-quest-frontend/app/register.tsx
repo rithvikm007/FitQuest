@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -17,6 +18,7 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   const validationErrors = useMemo(
     () => validateRegisterForm(username, email, password, confirmPassword),
@@ -24,6 +26,7 @@ export default function RegisterScreen() {
   );
 
   const handleSubmit = async () => {
+    setHasAttemptedSubmit(true);
     const errors = validateRegisterForm(username, email, password, confirmPassword);
     if (errors.username || errors.email || errors.password || errors.confirmPassword) {
       setFormError('Please fix the form errors before continuing.');
@@ -44,11 +47,12 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-neutral-950"
-    >
-      <View className="flex-1 justify-center gap-6 px-6">
+    <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        className="flex-1 bg-neutral-950"
+      >
+        <View className="flex-1 justify-center gap-6 px-6">
         <View className="gap-2">
           <Text className="text-center text-4xl font-extrabold text-white">Create Account</Text>
           <Text className="text-center text-sm text-neutral-300">Sign up to start tracking workouts offline.</Text>
@@ -61,7 +65,7 @@ export default function RegisterScreen() {
             onChangeText={setUsername}
             placeholder="Choose a username"
             autoCapitalize="none"
-            error={validationErrors.username}
+            error={hasAttemptedSubmit ? validationErrors.username : undefined}
           />
 
           <Input
@@ -70,7 +74,7 @@ export default function RegisterScreen() {
             onChangeText={setEmail}
             placeholder="you@example.com"
             keyboardType="email-address"
-            error={validationErrors.email}
+            error={hasAttemptedSubmit ? validationErrors.email : undefined}
           />
 
           <Input
@@ -79,7 +83,7 @@ export default function RegisterScreen() {
             onChangeText={setPassword}
             placeholder="At least 6 characters"
             secureTextEntry
-            error={validationErrors.password}
+            error={hasAttemptedSubmit ? validationErrors.password : undefined}
           />
 
           <Input
@@ -88,7 +92,7 @@ export default function RegisterScreen() {
             onChangeText={setConfirmPassword}
             placeholder="Re-enter your password"
             secureTextEntry
-            error={validationErrors.confirmPassword}
+            error={hasAttemptedSubmit ? validationErrors.confirmPassword : undefined}
           />
 
           {formError ? <Text className="text-sm text-red-400">{formError}</Text> : null}
@@ -102,7 +106,8 @@ export default function RegisterScreen() {
             </Text>
           </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

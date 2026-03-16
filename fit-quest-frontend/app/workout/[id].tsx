@@ -1,9 +1,11 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { ThemedConfirmModal } from '@/components/common/ThemedConfirmModal';
 import { useSync } from '@/contexts/SyncContext';
 import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deleteWorkout, getWorkoutById, saveWorkout } from '@/services/db/workoutDbService';
@@ -98,6 +100,7 @@ export default function WorkoutDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStartingAgain, setIsStartingAgain] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const loadWorkout = useCallback(async () => {
     if (!id) {
@@ -140,6 +143,7 @@ export default function WorkoutDetailScreen() {
         remoteId: workout.remoteId ?? null,
       });
       await getPendingChanges();
+      setIsDeleteModalOpen(false);
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -149,10 +153,7 @@ export default function WorkoutDetailScreen() {
   };
 
   const confirmDelete = () => {
-    Alert.alert('Delete Workout', 'Are you sure you want to delete this workout?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => void handleDelete() },
-    ]);
+    setIsDeleteModalOpen(true);
   };
 
   const handleStartAgain = async () => {
@@ -241,15 +242,15 @@ export default function WorkoutDetailScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-neutral-950">
+      <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
         <LoadingSpinner />
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!workout) {
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-neutral-950 px-6">
+      <SafeAreaView className="flex-1 items-center justify-center gap-3 bg-neutral-950 px-6" edges={['top', 'bottom']}>
         <Text className="text-xl font-bold text-white">Workout Not Found</Text>
         <Text className="text-center text-sm text-neutral-300">
           {error ?? 'This workout may have been deleted or does not exist.'}
@@ -257,13 +258,14 @@ export default function WorkoutDetailScreen() {
         <Pressable className="rounded-xl bg-primary px-4 py-2" onPress={() => router.back()}>
           <Text className="font-semibold text-white">Go Back</Text>
         </Pressable>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-neutral-950" contentContainerClassName="gap-4 px-4 pb-8 pt-5">
-      <Stack.Screen
+    <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
+      <ScrollView className="flex-1 bg-[#141313]" contentContainerClassName="gap-5 px-5 pb-8 pt-5">
+        <Stack.Screen
         options={{
           title: workout.name?.trim() || 'Workout',
           headerRight: () => (
@@ -284,34 +286,52 @@ export default function WorkoutDetailScreen() {
             </View>
           ),
         }}
-      />
+        />
 
-      {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
+        {error ? <Text className="text-sm text-red-400">{error}</Text> : null}
 
-      <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-        <Text className="text-2xl font-bold text-white">{workout.name?.trim() || 'Workout'}</Text>
-        <Text className="mt-2 text-sm text-neutral-300">{formatWorkoutDate(workout.date)}</Text>
-        {workout.notes ? <Text className="mt-3 text-sm leading-6 text-neutral-200">{workout.notes}</Text> : null}
-      </View>
-
-      {workout.exercises.length === 0 ? (
-        <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-          <Text className="text-sm text-neutral-300">No exercises were logged for this workout.</Text>
+        <View className="rounded-3xl border border-white/10 bg-[#1B1B1F] p-5">
+        <View className="flex-row items-center justify-between">
+          <View className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1">
+            <Text className="text-xs font-semibold text-amber-300">{workout.syncStatus.toUpperCase()}</Text>
+          </View>
+          <Text className="text-xs uppercase tracking-[1px] text-neutral-400">{formatWorkoutDate(workout.date)}</Text>
         </View>
-      ) : (
-        <View className="gap-3">
+        <Text className="mt-3 text-5xl font-black text-white">{workout.name?.trim() || 'Workout'}</Text>
+        {workout.notes ? <Text className="mt-3 text-sm leading-6 text-neutral-200">{workout.notes}</Text> : null}
+        </View>
+
+        <View className="flex-row gap-3">
+        <View className="flex-1 rounded-2xl border border-white/10 bg-[#1B1B1F] p-4">
+          <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Total Sets</Text>
+          <Text className="mt-2 text-4xl font-black text-[#DBB8FF]">
+            {workout.exercises.reduce((total, item) => total + item.sets.length, 0)}
+          </Text>
+        </View>
+        <View className="flex-1 rounded-2xl border border-white/10 bg-[#1B1B1F] p-4">
+          <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Exercises</Text>
+          <Text className="mt-2 text-4xl font-black text-white">{workout.exercises.length}</Text>
+        </View>
+        </View>
+
+        {workout.exercises.length === 0 ? (
+          <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+            <Text className="text-sm text-neutral-300">No exercises were logged for this workout.</Text>
+          </View>
+        ) : (
+          <View className="gap-3">
           {workout.exercises.map((entry, exerciseIndex) => {
             const columns = tableColumnsByExerciseId.get(entry.id) ?? ['reps'];
 
             return (
-              <View key={entry.id} className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                <Text className="text-base font-semibold text-white">
+              <View key={entry.id} className="rounded-3xl border border-white/10 bg-[#1B1B1F] p-4">
+                <Text className="text-2xl font-bold text-white">
                   {exerciseIndex + 1}. {entry.exercise.name}
                 </Text>
-                <Text className="mt-1 text-xs capitalize text-neutral-400">{entry.exercise.type}</Text>
+                <Text className="mt-1 text-xs uppercase tracking-[1px] text-[#DBB8FF]">{entry.exercise.type}</Text>
 
-                <View className="mt-3 rounded-xl border border-neutral-800">
-                  <View className="flex-row border-b border-neutral-800 bg-neutral-950/60 px-2 py-2">
+                <View className="mt-3 rounded-xl border border-white/10">
+                  <View className="flex-row border-b border-white/10 bg-[#131317] px-2 py-2">
                     <Text className="w-10 text-xs font-semibold text-neutral-300">Set</Text>
                     {columns.map((column) => (
                       <Text key={column} className="flex-1 text-xs font-semibold text-neutral-300">
@@ -328,7 +348,7 @@ export default function WorkoutDetailScreen() {
                     entry.sets.map((setRow, setIndex) => (
                       <View
                         key={setRow.id}
-                        className="flex-row border-b border-neutral-800 px-2 py-2 last:border-b-0"
+                        className="flex-row border-b border-white/5 px-2 py-2 last:border-b-0"
                       >
                         <Text className="w-10 text-xs text-white">{setIndex + 1}</Text>
                         {columns.map((column) => (
@@ -343,16 +363,41 @@ export default function WorkoutDetailScreen() {
               </View>
             );
           })}
-        </View>
-      )}
+          </View>
+        )}
 
-      <Pressable
-        className="items-center rounded-xl bg-primary px-4 py-3"
-        onPress={() => void handleStartAgain()}
-        disabled={isStartingAgain}
-      >
-        <Text className="font-semibold text-white">{isStartingAgain ? 'Starting...' : 'Start Again'}</Text>
-      </Pressable>
-    </ScrollView>
+        <View className="flex-row gap-3">
+        <Pressable
+          className="flex-1 items-center rounded-2xl border border-white/10 bg-[#1D1D20] px-4 py-4"
+          onPress={() => void handleStartAgain()}
+          disabled={isStartingAgain}
+        >
+          <Text className="font-semibold text-neutral-200">{isStartingAgain ? 'Starting...' : 'Log Similar'}</Text>
+        </Pressable>
+        <Pressable
+          className="flex-1 items-center rounded-2xl bg-[#6F31F5] px-4 py-4"
+          onPress={() => router.push({ pathname: '/workout/form', params: { id: workout.id } } as never)}
+        >
+          <Text className="font-semibold text-white">Edit Workout</Text>
+        </Pressable>
+        </View>
+      </ScrollView>
+
+      <ThemedConfirmModal
+        visible={isDeleteModalOpen}
+        title="Delete Workout"
+        message="Are you sure you want to delete this workout?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        tone="danger"
+        isLoading={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) {
+            setIsDeleteModalOpen(false);
+          }
+        }}
+        onConfirm={() => void handleDelete()}
+      />
+    </SafeAreaView>
   );
 }

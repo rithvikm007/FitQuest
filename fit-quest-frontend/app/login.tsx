@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -15,10 +16,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   const validationErrors = useMemo(() => validateLoginForm(email, password), [email, password]);
 
   const handleSubmit = async () => {
+    setHasAttemptedSubmit(true);
     const errors = validateLoginForm(email, password);
     if (errors.email || errors.password) {
       setFormError('Please fix the form errors before continuing.');
@@ -39,11 +42,12 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-neutral-950"
-    >
-      <View className="flex-1 justify-center gap-6 px-6">
+    <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        className="flex-1 bg-neutral-950"
+      >
+        <View className="flex-1 justify-center gap-6 px-6">
         <View className="gap-2">
           <Text className="text-center text-4xl font-extrabold text-white">FitQuest</Text>
           <Text className="text-center text-sm text-neutral-300">Log in to continue your training journey.</Text>
@@ -56,7 +60,7 @@ export default function LoginScreen() {
             onChangeText={setEmail}
             placeholder="you@example.com"
             keyboardType="email-address"
-            error={validationErrors.email}
+            error={hasAttemptedSubmit ? validationErrors.email : undefined}
           />
 
           <Input
@@ -65,7 +69,7 @@ export default function LoginScreen() {
             onChangeText={setPassword}
             placeholder="Enter your password"
             secureTextEntry
-            error={validationErrors.password}
+            error={hasAttemptedSubmit ? validationErrors.password : undefined}
           />
 
           {formError ? <Text className="text-sm text-red-400">{formError}</Text> : null}
@@ -79,7 +83,8 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
