@@ -50,6 +50,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshStoredUserFromBackend = async (storedToken: string): Promise<void> => {
+    try {
+      const envelope = await getMe(storedToken);
+      const backendUser = envelope.data.user;
+      const localUser = await getUser();
+      const normalized = normalizeBackendUser(backendUser, localUser?.id);
+      await saveUser(normalized);
+
+      const refreshedUser = await getUser();
+      if (refreshedUser) {
+        setUser(refreshedUser);
+      }
+    } catch {
+      // Network unavailable or token stale — keep cached local user.
+    }
+  };
+
   // -------------------------------------------------------------------------
   // loadStoredAuth
   // -------------------------------------------------------------------------
@@ -63,23 +80,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      // Best-effort: refresh user data from backend while online.
-      // If offline or token expired, fall through and use local data.
-      try {
-        const envelope = await getMe(storedToken);
-        const backendUser = envelope.data.user;
-        const localUser = await getUser();
-        const normalized = normalizeBackendUser(backendUser, localUser?.id);
-        await saveUser(normalized);
-      } catch {
-        // Network unavailable or token stale — proceed with cached local user.
-      }
-
       const localUser = await getUser();
 
       if (localUser) {
         setToken(storedToken);
         setUser(localUser);
+
+        // Do not block startup on network requests while restoring auth.
+        void refreshStoredUserFromBackend(storedToken);
       } else {
         // No local user means nothing to restore — discard the orphaned token.
         await AsyncStorage.removeItem(TOKEN_KEY);
