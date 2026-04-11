@@ -33,6 +33,8 @@ type WorkoutSetRow = {
   workoutExerciseId: string;
   reps: number | null;
   weight: number | null;
+  weightUnit: 'kg' | 'lb' | null;
+  weightKg: number | null;
   duration: number | null;
   distance: number | null;
   notes: string | null;
@@ -128,6 +130,8 @@ function mapWorkoutSetRow(row: WorkoutSetRow): WorkoutSet {
     workoutExerciseId: row.workoutExerciseId,
     reps: row.reps ?? undefined,
     weight: row.weight ?? undefined,
+    weightUnit: row.weightUnit ?? undefined,
+    weightKg: row.weightKg ?? undefined,
     duration: row.duration ?? undefined,
     distance: row.distance ?? undefined,
     notes: row.notes ?? undefined,
@@ -279,15 +283,17 @@ export async function saveWorkout(
         await db.runAsync(
           `
             INSERT INTO workout_sets (
-              id, workoutExerciseId, reps, weight, duration, distance, notes, orderIndex, createdAt
+              id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, orderIndex, createdAt
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           `,
           [
             s.id ?? generateUuid(),
             s.workoutExerciseId,
             s.reps ?? null,
             s.weight ?? null,
+            s.weightUnit ?? null,
+            s.weightKg ?? null,
             s.duration ?? null,
             s.distance ?? null,
             s.notes ?? null,
@@ -496,15 +502,17 @@ export async function updateWorkout(
           await db.runAsync(
             `
               INSERT INTO workout_sets (
-                id, workoutExerciseId, reps, weight, duration, distance, notes, orderIndex, createdAt
+                  id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, orderIndex, createdAt
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             `,
             [
               s.id ?? generateUuid(),
               s.workoutExerciseId,
               s.reps ?? null,
               s.weight ?? null,
+                s.weightUnit ?? null,
+                s.weightKg ?? null,
               s.duration ?? null,
               s.distance ?? null,
               s.notes ?? null,

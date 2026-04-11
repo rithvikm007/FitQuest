@@ -72,7 +72,7 @@ function getSetValue(set: PlanSet, column: TableColumn): string {
   }
 
   if (column === 'weight') {
-    return set.weight !== undefined ? String(set.weight) : '-';
+    return set.weight !== undefined ? `${set.weight} ${set.weightUnit ?? 'kg'}` : '-';
   }
 
   if (column === 'duration') {

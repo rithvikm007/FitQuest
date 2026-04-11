@@ -1,5 +1,6 @@
 const Plan = require('../models/Plan');
 const asyncHandler = require('express-async-handler');
+const { normalizeExerciseSets } = require('../utils/normalizeSetWeights');
 
 // @desc    Create a new plan
 // @route   POST /api/plans
@@ -15,7 +16,7 @@ const createPlan = asyncHandler(async (req, res) => {
         user: req.user._id,
         name,
         plannedDate,
-        exercises
+        exercises: normalizeExerciseSets(exercises)
     });
     const populatedPlan = await Plan.findById(plan._id).populate('exercises.exercise', 'name');
     res.status(201).json(populatedPlan);
@@ -61,7 +62,7 @@ const updatePlan = asyncHandler(async (req, res) => {
         } = req.body;
         plan.name = name || plan.name;
         plan.plannedDate = plannedDate || plan.plannedDate;
-        plan.exercises = exercises || plan.exercises;
+        plan.exercises = exercises ? normalizeExerciseSets(exercises) : plan.exercises;
         await plan.save();
         const updatedPlan = await Plan.findById(req.params.id).populate('exercises.exercise', 'name');
         res.json(updatedPlan);

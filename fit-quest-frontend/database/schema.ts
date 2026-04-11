@@ -79,6 +79,8 @@ export const CREATE_WORKOUT_SETS_TABLE = `
     workoutExerciseId TEXT NOT NULL,
     reps INTEGER,
     weight REAL,
+    weightUnit TEXT,
+    weightKg REAL,
     duration INTEGER,
     distance REAL,
     notes TEXT,
@@ -121,6 +123,8 @@ export const CREATE_PLAN_SETS_TABLE = `
     planExerciseId TEXT NOT NULL,
     reps INTEGER,
     weight REAL,
+    weightUnit TEXT,
+    weightKg REAL,
     duration INTEGER,
     distance REAL,
     notes TEXT,
@@ -180,7 +184,11 @@ export const ADDITIVE_MIGRATIONS = [
   "ALTER TABLE exercises ADD COLUMN remoteId TEXT;",
   "ALTER TABLE workouts ADD COLUMN remoteId TEXT;",
   "ALTER TABLE workouts ADD COLUMN sourcePlanRemoteId TEXT;",
-  "ALTER TABLE plans ADD COLUMN remoteId TEXT;"
+  "ALTER TABLE workout_sets ADD COLUMN weightUnit TEXT;",
+  "ALTER TABLE workout_sets ADD COLUMN weightKg REAL;",
+  "ALTER TABLE plans ADD COLUMN remoteId TEXT;",
+  "ALTER TABLE plan_sets ADD COLUMN weightUnit TEXT;",
+  "ALTER TABLE plan_sets ADD COLUMN weightKg REAL;"
 ];
 
 // All table creation statements in order

@@ -3,6 +3,7 @@ const Workout = require('../models/Workout');
 const Exercise = require('../models/Exercise');
 const Plan = require('../models/Plan');
 const User = require('../models/User');
+const { normalizeExerciseSets } = require('../utils/normalizeSetWeights');
 
 // @desc    Sync data from client to server
 // @route   POST /api/sync
@@ -12,9 +13,14 @@ exports.sync = asyncHandler(async (req, res) => {
   
     // UPSERT workouts
     for (const workout of workouts || []) {
+        const normalizedWorkout = {
+            ...workout,
+            exercises: normalizeExerciseSets(workout.exercises)
+        };
+
         await Workout.findOneAndUpdate(
             { _id: workout._id, user: req.user._id },
-            { $set: workout },
+            { $set: normalizedWorkout },
             { upsert: true, new: true }
         );
     }
@@ -32,9 +38,14 @@ exports.sync = asyncHandler(async (req, res) => {
   
     // UPSERT plans
     for (const plan of plans || []) {
+        const normalizedPlan = {
+            ...plan,
+            exercises: normalizeExerciseSets(plan.exercises)
+        };
+
         await Plan.findOneAndUpdate(
             { _id: plan._id, user: req.user._id },
-            { $set: plan },
+            { $set: normalizedPlan },
             { upsert: true }
         );
     }

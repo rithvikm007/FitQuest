@@ -11,7 +11,7 @@ import { useSync } from '@/contexts/SyncContext';
 import { getExerciseById } from '@/services/db/exerciseDbService';
 import { getPlanById, savePlan } from '@/services/db/planDbService';
 import { addToSyncQueue } from '@/services/db/syncQueueService';
-import type { Exercise, ExerciseType, Plan, PlanExercise, PlanSet } from '@/types/models';
+import type { Exercise, ExerciseType, Plan, PlanExercise, PlanSet, WeightUnit } from '@/types/models';
 
 const EXERCISE_PICKER_SELECTION_KEY = '@fitquest_exercise_picker_selection';
 
@@ -21,6 +21,7 @@ type DraftSet = {
   id: string;
   reps: string;
   weight: string;
+  weightUnit: WeightUnit;
   duration: string;
   distance: string;
   notes: string;
@@ -72,10 +73,23 @@ function createEmptyDraftSet(): DraftSet {
     id: generateUuid(),
     reps: '',
     weight: '',
+    weightUnit: 'kg',
     duration: '',
     distance: '',
     notes: '',
   };
+}
+
+function normalizeWeightUnit(unit: string | undefined): WeightUnit {
+  return unit === 'lb' ? 'lb' : 'kg';
+}
+
+function toWeightKg(weight: number | undefined, unit: WeightUnit): number | undefined {
+  if (weight === undefined) {
+    return undefined;
+  }
+
+  return unit === 'lb' ? weight * 0.45359237 : weight;
 }
 
 function formatDateForDisplay(dateIso?: string): string {
@@ -168,6 +182,7 @@ export default function PlanFormScreen() {
                   id: generateUuid(),
                   reps: setRow.reps !== undefined ? String(setRow.reps) : '',
                   weight: setRow.weight !== undefined ? String(setRow.weight) : '',
+                  weightUnit: normalizeWeightUnit(setRow.weightUnit),
                   duration: setRow.duration !== undefined ? String(setRow.duration) : '',
                   distance: setRow.distance !== undefined ? String(setRow.distance) : '',
                   notes: setRow.notes ?? '',
@@ -387,11 +402,14 @@ export default function PlanFormScreen() {
         });
 
         draftExercise.sets.forEach((draftSet, setIndex) => {
+          const parsedWeight = toOptionalNumber(draftSet.weight);
           planSets.push({
             id: generateUuid(),
             planExerciseId,
             reps: toOptionalNumber(draftSet.reps),
-            weight: toOptionalNumber(draftSet.weight),
+            weight: parsedWeight,
+            weightUnit: parsedWeight !== undefined ? draftSet.weightUnit : undefined,
+            weightKg: toWeightKg(parsedWeight, draftSet.weightUnit),
             duration: toOptionalNumber(draftSet.duration),
             distance: toOptionalNumber(draftSet.distance),
             notes: draftSet.notes.trim() || undefined,
@@ -523,15 +541,36 @@ export default function PlanFormScreen() {
                             ) : null}
 
                             {columns.includes('weight') ? (
-                              <Input
-                                label="Target Weight"
-                                value={draftSet.weight}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'weight', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 60"
-                              />
+                              <View className="gap-2">
+                                <Input
+                                  label={`Target Weight (${draftSet.weightUnit.toUpperCase()})`}
+                                  value={draftSet.weight}
+                                  onChangeText={(value) =>
+                                    updateSetField(draftExercise.id, draftSet.id, 'weight', value)
+                                  }
+                                  keyboardType="numeric"
+                                  placeholder="e.g. 60"
+                                />
+                                <View className="flex-row rounded-lg border border-white/10 bg-[#2B2B30] p-1">
+                                  {(['kg', 'lb'] as WeightUnit[]).map((unit) => {
+                                    const selected = draftSet.weightUnit === unit;
+
+                                    return (
+                                      <Pressable
+                                        key={unit}
+                                        className={`flex-1 rounded-md px-3 py-2 ${selected ? 'bg-[#6F31F5]' : 'bg-transparent'}`}
+                                        onPress={() =>
+                                          updateSetField(draftExercise.id, draftSet.id, 'weightUnit', unit)
+                                        }
+                                      >
+                                        <Text className={`text-center text-xs font-semibold ${selected ? 'text-white' : 'text-neutral-300'}`}>
+                                          {unit.toUpperCase()}
+                                        </Text>
+                                      </Pressable>
+                                    );
+                                  })}
+                                </View>
+                              </View>
                             ) : null}
 
                             {columns.includes('duration') ? (

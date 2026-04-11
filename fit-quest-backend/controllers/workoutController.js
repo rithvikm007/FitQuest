@@ -1,6 +1,7 @@
 const Workout = require('../models/Workout');
 const Plan = require('../models/Plan');
 const asyncHandler = require('express-async-handler');
+const { normalizeExerciseSets } = require('../utils/normalizeSetWeights');
 
 // @desc    Create a new workout
 // @route   POST /api/workouts
@@ -17,7 +18,7 @@ const createWorkout = asyncHandler(async (req, res) => {
     const workout = await Workout.create({
         user: req.user._id,
         name,
-        exercises,
+        exercises: normalizeExerciseSets(exercises),
         notes,
         date,
         sourcePlan
@@ -63,7 +64,7 @@ const updateWorkout = asyncHandler(async (req, res) => {
     if (workout && workout.user.toString() === req.user._id.toString()) {
         const { name, exercises, notes, date, sourcePlan } = req.body;
         workout.name = name || workout.name;
-        workout.exercises = exercises || workout.exercises;
+        workout.exercises = exercises ? normalizeExerciseSets(exercises) : workout.exercises;
         workout.notes = notes || workout.notes;
         workout.date = date || workout.date;
         workout.sourcePlan = sourcePlan || workout.sourcePlan;
@@ -117,10 +118,12 @@ const startWorkoutFromPlan = asyncHandler(async (req, res) => {
     name: req.body.name || `${plan.name} - ${new Date().toLocaleDateString()}`,
     date: new Date(),
     sourcePlan: plan._id,
-    exercises: plan.exercises.map(exercise => ({
-      exercise: exercise.exercise._id,
-      sets: exercise.sets
-    }))
+        exercises: normalizeExerciseSets(
+            plan.exercises.map(exercise => ({
+                exercise: exercise.exercise._id,
+                sets: exercise.sets
+            }))
+        )
   });
   
   const populatedWorkout = await Workout.findById(workout._id)

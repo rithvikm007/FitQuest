@@ -75,6 +75,7 @@ export type Equipment =
   | 'other';
 
 export type SyncOperation = 'create' | 'update' | 'delete';
+export type WeightUnit = 'kg' | 'lb';
 
 // ============================================================================
 // Core Entity Interfaces
@@ -143,6 +144,8 @@ export interface WorkoutSet {
   workoutExerciseId: string;
   reps?: number;
   weight?: number; // kg or lbs
+  weightUnit?: WeightUnit;
+  weightKg?: number;
   duration?: number; // seconds
   distance?: number; // meters
   notes?: string;
@@ -175,6 +178,8 @@ export interface PlanSet {
   planExerciseId: string;
   reps?: number;
   weight?: number;
+  weightUnit?: WeightUnit;
+  weightKg?: number;
   duration?: number; // seconds
   distance?: number; // meters
   notes?: string;
@@ -229,6 +234,8 @@ export interface BackendWorkoutExerciseDocument {
   sets: Array<{
     reps?: number;
     weight?: number;
+    weightUnit?: WeightUnit;
+    weightKg?: number;
     duration?: number;
     distance?: number;
     notes?: string;

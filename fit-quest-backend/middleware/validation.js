@@ -1,5 +1,53 @@
 // Input validation middleware
 
+const VALID_WEIGHT_UNITS = ['kg', 'lb'];
+
+const validateExerciseSets = (exercises, errors, contextLabel) => {
+  exercises.forEach((ex, index) => {
+    if (!ex.exercise) {
+      errors.push(`${contextLabel} at index ${index} must have an exercise ID`);
+    }
+
+    if (!ex.sets || !Array.isArray(ex.sets) || ex.sets.length === 0) {
+      errors.push(`${contextLabel} at index ${index} must have at least one set`);
+      return;
+    }
+
+    ex.sets.forEach((set, setIndex) => {
+      if (!set || typeof set !== 'object') {
+        errors.push(`${contextLabel} at index ${index} has an invalid set at index ${setIndex}`);
+        return;
+      }
+
+      const hasWeight = set.weight !== undefined && set.weight !== null;
+      const hasWeightUnit = set.weightUnit !== undefined && set.weightUnit !== null;
+      const hasWeightKg = set.weightKg !== undefined && set.weightKg !== null;
+
+      if (hasWeight) {
+        if (typeof set.weight !== 'number' || !Number.isFinite(set.weight) || set.weight < 0) {
+          errors.push(`${contextLabel} at index ${index} has invalid weight at set ${setIndex}`);
+        }
+      }
+
+      if (hasWeightUnit) {
+        if (typeof set.weightUnit !== 'string' || !VALID_WEIGHT_UNITS.includes(set.weightUnit.toLowerCase())) {
+          errors.push(`${contextLabel} at index ${index} has invalid weightUnit at set ${setIndex}; allowed: kg, lb`);
+        }
+      }
+
+      if (!hasWeight && hasWeightUnit) {
+        errors.push(`${contextLabel} at index ${index} set ${setIndex} cannot include weightUnit without weight`);
+      }
+
+      if (hasWeightKg) {
+        if (typeof set.weightKg !== 'number' || !Number.isFinite(set.weightKg) || set.weightKg < 0) {
+          errors.push(`${contextLabel} at index ${index} has invalid weightKg at set ${setIndex}`);
+        }
+      }
+    });
+  });
+};
+
 const validateRegister = (req, res, next) => {
   const { username, email, password } = req.body;
   const errors = [];
@@ -63,15 +111,7 @@ const validateWorkout = (req, res, next) => {
   } else if (exercises.length === 0) {
     errors.push('At least one exercise is required');
   } else {
-    // Validate each exercise
-    exercises.forEach((ex, index) => {
-      if (!ex.exercise) {
-        errors.push(`Exercise at index ${index} must have an exercise ID`);
-      }
-      if (!ex.sets || !Array.isArray(ex.sets) || ex.sets.length === 0) {
-        errors.push(`Exercise at index ${index} must have at least one set`);
-      }
-    });
+    validateExerciseSets(exercises, errors, 'Exercise');
   }
 
   // Validate date if provided
@@ -101,15 +141,7 @@ const validatePlan = (req, res, next) => {
   } else if (exercises.length === 0) {
     errors.push('At least one exercise is required');
   } else {
-    // Validate each exercise
-    exercises.forEach((ex, index) => {
-      if (!ex.exercise) {
-        errors.push(`Exercise at index ${index} must have an exercise ID`);
-      }
-      if (!ex.sets || !Array.isArray(ex.sets) || ex.sets.length === 0) {
-        errors.push(`Exercise at index ${index} must have at least one set`);
-      }
-    });
+    validateExerciseSets(exercises, errors, 'Exercise');
   }
 
   if (errors.length > 0) {

@@ -30,6 +30,8 @@ type PlanSetRow = {
   planExerciseId: string;
   reps: number | null;
   weight: number | null;
+  weightUnit: 'kg' | 'lb' | null;
+  weightKg: number | null;
   duration: number | null;
   distance: number | null;
   notes: string | null;
@@ -134,6 +136,8 @@ function mapPlanSetRow(row: PlanSetRow): PlanSet {
     planExerciseId: row.planExerciseId,
     reps: row.reps ?? undefined,
     weight: row.weight ?? undefined,
+    weightUnit: row.weightUnit ?? undefined,
+    weightKg: row.weightKg ?? undefined,
     duration: row.duration ?? undefined,
     distance: row.distance ?? undefined,
     notes: row.notes ?? undefined,
@@ -281,19 +285,23 @@ export async function savePlan(
               planExerciseId,
               reps,
               weight,
+              weightUnit,
+              weightKg,
               duration,
               distance,
               notes,
               orderIndex,
               createdAt
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           `,
           [
             planSet.id ?? generateUuid(),
             planSet.planExerciseId,
             planSet.reps ?? null,
             planSet.weight ?? null,
+            planSet.weightUnit ?? null,
+            planSet.weightKg ?? null,
             planSet.duration ?? null,
             planSet.distance ?? null,
             planSet.notes ?? null,
@@ -509,19 +517,23 @@ export async function updatePlan(
                 planExerciseId,
                 reps,
                 weight,
+                weightUnit,
+                weightKg,
                 duration,
                 distance,
                 notes,
                 orderIndex,
                 createdAt
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             `,
             [
               planSet.id ?? generateUuid(),
               planSet.planExerciseId,
               planSet.reps ?? null,
               planSet.weight ?? null,
+              planSet.weightUnit ?? null,
+              planSet.weightKg ?? null,
               planSet.duration ?? null,
               planSet.distance ?? null,
               planSet.notes ?? null,

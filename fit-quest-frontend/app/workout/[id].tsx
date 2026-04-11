@@ -80,7 +80,7 @@ function getSetValue(set: WorkoutSet, column: TableColumn): string {
   }
 
   if (column === 'weight') {
-    return set.weight !== undefined ? String(set.weight) : '-';
+    return set.weight !== undefined ? `${set.weight} ${set.weightUnit ?? 'kg'}` : '-';
   }
 
   if (column === 'duration') {
@@ -206,6 +206,8 @@ export default function WorkoutDetailScreen() {
           workoutExerciseId: duplicatedWorkoutExerciseId,
           reps: setRow.reps,
           weight: setRow.weight,
+          weightUnit: setRow.weightUnit,
+          weightKg: setRow.weightKg,
           duration: setRow.duration,
           distance: setRow.distance,
           notes: setRow.notes,
