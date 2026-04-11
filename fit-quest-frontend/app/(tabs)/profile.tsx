@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedAlertModal } from '@/components/common/ThemedAlertModal';
@@ -11,6 +11,7 @@ import { SyncStatusChip } from '@/components/common/SyncStatusChip';
 import { ThemedConfirmModal } from '@/components/common/ThemedConfirmModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSync } from '@/contexts/SyncContext';
+import { clearApiBaseUrlOverride, getApiBaseUrl, setApiBaseUrl } from '@/services/api';
 
 type UserInfoDraft = {
   firstName: string;
@@ -76,15 +77,39 @@ export default function ProfileScreen() {
 
   const [isUserInfoModalOpen, setIsUserInfoModalOpen] = useState(false);
   const [isBodyStatsModalOpen, setIsBodyStatsModalOpen] = useState(false);
+  const [isBackendUrlModalOpen, setIsBackendUrlModalOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isSavingUserInfo, setIsSavingUserInfo] = useState(false);
   const [isSavingBodyStats, setIsSavingBodyStats] = useState(false);
+  const [isSavingBackendUrl, setIsSavingBackendUrl] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userInfoError, setUserInfoError] = useState<string | null>(null);
   const [bodyStatsError, setBodyStatsError] = useState<string | null>(null);
+  const [backendUrlError, setBackendUrlError] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{ title: string; message: string; tone: 'info' | 'success' | 'warning' | 'error' } | null>(null);
   const [userInfoDraft, setUserInfoDraft] = useState<UserInfoDraft>(getUserInfoDraftFromUser(user));
   const [bodyStatsDraft, setBodyStatsDraft] = useState<BodyStatsDraft>(getBodyStatsDraftFromUser(user));
+  const [backendUrlDraft, setBackendUrlDraft] = useState(getApiBaseUrl());
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardOffset(event.endCoordinates.height);
+    });
+
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardOffset(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const appVersion = useMemo(() => {
     return Constants.expoConfig?.version ?? Constants.manifest2?.extra?.expoClient?.version ?? '1.0.0';
@@ -142,6 +167,21 @@ export default function ProfileScreen() {
 
     setIsBodyStatsModalOpen(false);
     setBodyStatsError(null);
+  };
+
+  const openBackendUrlModal = () => {
+    setBackendUrlDraft(getApiBaseUrl());
+    setBackendUrlError(null);
+    setIsBackendUrlModalOpen(true);
+  };
+
+  const closeBackendUrlModal = () => {
+    if (isSavingBackendUrl) {
+      return;
+    }
+
+    setIsBackendUrlModalOpen(false);
+    setBackendUrlError(null);
   };
 
   const validateBodyStatsDraft = (): string | null => {
@@ -293,6 +333,48 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleSaveBackendUrl = async () => {
+    setIsSavingBackendUrl(true);
+    setBackendUrlError(null);
+
+    try {
+      const normalized = await setApiBaseUrl(backendUrlDraft);
+      setBackendUrlDraft(normalized);
+      setIsBackendUrlModalOpen(false);
+      setAlertState({
+        title: 'Backend URL Updated',
+        message: `API calls will now use ${normalized}`,
+        tone: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setBackendUrlError(message);
+    } finally {
+      setIsSavingBackendUrl(false);
+    }
+  };
+
+  const handleResetBackendUrl = async () => {
+    setIsSavingBackendUrl(true);
+    setBackendUrlError(null);
+
+    try {
+      const resolved = await clearApiBaseUrlOverride();
+      setBackendUrlDraft(resolved);
+      setIsBackendUrlModalOpen(false);
+      setAlertState({
+        title: 'Backend URL Reset',
+        message: `Reverted to default: ${resolved}`,
+        tone: 'info',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setBackendUrlError(message);
+    } finally {
+      setIsSavingBackendUrl(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
@@ -381,6 +463,13 @@ export default function ProfileScreen() {
             <Text className="text-base font-semibold text-white">Edit User Info</Text>
           </Pressable>
 
+          <Pressable className="mt-3 rounded-xl border border-white/10 bg-[#25252A] px-4 py-3" onPress={openBackendUrlModal}>
+            <Text className="text-base font-semibold text-white">Backend URL</Text>
+            <Text className="mt-1 text-xs text-neutral-400" numberOfLines={1}>
+              {getApiBaseUrl()}
+            </Text>
+          </Pressable>
+
           <Pressable className="mt-3 rounded-xl border border-red-300/20 bg-red-400/10 px-4 py-3" onPress={confirmLogout}>
             <Text className="text-base font-semibold text-red-300">Logout</Text>
           </Pressable>
@@ -413,93 +502,165 @@ export default function ProfileScreen() {
         onClose={() => setAlertState(null)}
       />
 
-      <Modal visible={isUserInfoModalOpen} transparent animationType="slide" onRequestClose={closeUserInfoModal}>
-        <View className="flex-1 justify-end bg-black/70">
-          <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="text-2xl font-bold text-white">Edit User Info</Text>
-              <Pressable onPress={closeUserInfoModal}>
-                <Text className="text-sm font-semibold text-neutral-300">Close</Text>
-              </Pressable>
-            </View>
+      <Modal
+        visible={isUserInfoModalOpen}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeUserInfoModal}
+      >
+        <View
+          className="flex-1 justify-end bg-black/70"
+          style={{ paddingBottom: Platform.OS === 'android' ? keyboardOffset : 0 }}
+        >
+            <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
+              <View className="mb-4 flex-row items-center justify-between">
+                <Text className="text-2xl font-bold text-white">Edit User Info</Text>
+                <Pressable onPress={closeUserInfoModal}>
+                  <Text className="text-sm font-semibold text-neutral-300">Close</Text>
+                </Pressable>
+              </View>
 
-            {userInfoError ? <Text className="mb-2 text-sm text-red-300">{userInfoError}</Text> : null}
+              {userInfoError ? <Text className="mb-2 text-sm text-red-300">{userInfoError}</Text> : null}
 
-            <View className="gap-3 pb-4">
-              <Input
-                label="First Name"
-                value={userInfoDraft.firstName}
-                onChangeText={(value) => setUserInfoDraft((current) => ({ ...current, firstName: value }))}
-                placeholder="First name"
-              />
-              <Input
-                label="Last Name"
-                value={userInfoDraft.lastName}
-                onChangeText={(value) => setUserInfoDraft((current) => ({ ...current, lastName: value }))}
-                placeholder="Last name"
-              />
+              <View className="gap-3 pb-4">
+                <Input
+                  label="First Name"
+                  value={userInfoDraft.firstName}
+                  onChangeText={(value) => setUserInfoDraft((current) => ({ ...current, firstName: value }))}
+                  placeholder="First name"
+                />
+                <Input
+                  label="Last Name"
+                  value={userInfoDraft.lastName}
+                  onChangeText={(value) => setUserInfoDraft((current) => ({ ...current, lastName: value }))}
+                  placeholder="Last name"
+                />
 
-              <Pressable
-                className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
-                onPress={() => void handleSaveUserInfo()}
-                disabled={isSavingUserInfo}
-              >
-                <Text className="text-center text-base font-bold text-white">
-                  {isSavingUserInfo ? 'Saving...' : 'Save User Info'}
-                </Text>
-              </Pressable>
-            </View>
-          </SafeAreaView>
-        </View>
+                <Pressable
+                  className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
+                  onPress={() => void handleSaveUserInfo()}
+                  disabled={isSavingUserInfo}
+                >
+                  <Text className="text-center text-base font-bold text-white">
+                    {isSavingUserInfo ? 'Saving...' : 'Save User Info'}
+                  </Text>
+                </Pressable>
+              </View>
+            </SafeAreaView>
+          </View>
       </Modal>
 
-      <Modal visible={isBodyStatsModalOpen} transparent animationType="slide" onRequestClose={closeBodyStatsModal}>
-        <View className="flex-1 justify-end bg-black/70">
-          <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="text-2xl font-bold text-white">Update Body Stats</Text>
-              <Pressable onPress={closeBodyStatsModal}>
-                <Text className="text-sm font-semibold text-neutral-300">Close</Text>
-              </Pressable>
-            </View>
+      <Modal
+        visible={isBodyStatsModalOpen}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeBodyStatsModal}
+      >
+        <View
+          className="flex-1 justify-end bg-black/70"
+          style={{ paddingBottom: Platform.OS === 'android' ? keyboardOffset : 0 }}
+        >
+            <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
+              <View className="mb-4 flex-row items-center justify-between">
+                <Text className="text-2xl font-bold text-white">Update Body Stats</Text>
+                <Pressable onPress={closeBodyStatsModal}>
+                  <Text className="text-sm font-semibold text-neutral-300">Close</Text>
+                </Pressable>
+              </View>
 
-            {bodyStatsError ? <Text className="mb-2 text-sm text-red-300">{bodyStatsError}</Text> : null}
+              {bodyStatsError ? <Text className="mb-2 text-sm text-red-300">{bodyStatsError}</Text> : null}
 
-            <View className="gap-3 pb-4">
-              <Input
-                label="Age"
-                value={bodyStatsDraft.age}
-                onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, age: value }))}
-                keyboardType="numeric"
-                placeholder="Age"
-              />
-              <Input
-                label="Height (cm)"
-                value={bodyStatsDraft.height}
-                onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, height: value }))}
-                keyboardType="numeric"
-                placeholder="Height"
-              />
-              <Input
-                label="Weight (kg)"
-                value={bodyStatsDraft.weight}
-                onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, weight: value }))}
-                keyboardType="numeric"
-                placeholder="Weight"
-              />
+              <View className="gap-3 pb-4">
+                <Input
+                  label="Age"
+                  value={bodyStatsDraft.age}
+                  onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, age: value }))}
+                  keyboardType="numeric"
+                  placeholder="Age"
+                />
+                <Input
+                  label="Height (cm)"
+                  value={bodyStatsDraft.height}
+                  onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, height: value }))}
+                  keyboardType="numeric"
+                  placeholder="Height"
+                />
+                <Input
+                  label="Weight (kg)"
+                  value={bodyStatsDraft.weight}
+                  onChangeText={(value) => setBodyStatsDraft((current) => ({ ...current, weight: value }))}
+                  keyboardType="numeric"
+                  placeholder="Weight"
+                />
 
-              <Pressable
-                className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
-                onPress={() => void handleSaveBodyStats()}
-                disabled={isSavingBodyStats}
-              >
-                <Text className="text-center text-base font-bold text-white">
-                  {isSavingBodyStats ? 'Saving...' : 'Save Stats'}
-                </Text>
-              </Pressable>
-            </View>
-          </SafeAreaView>
-        </View>
+                <Pressable
+                  className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
+                  onPress={() => void handleSaveBodyStats()}
+                  disabled={isSavingBodyStats}
+                >
+                  <Text className="text-center text-base font-bold text-white">
+                    {isSavingBodyStats ? 'Saving...' : 'Save Stats'}
+                  </Text>
+                </Pressable>
+              </View>
+            </SafeAreaView>
+          </View>
+      </Modal>
+
+      <Modal
+        visible={isBackendUrlModalOpen}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeBackendUrlModal}
+      >
+        <View
+          className="flex-1 justify-end bg-black/70"
+          style={{ paddingBottom: Platform.OS === 'android' ? keyboardOffset : 0 }}
+        >
+            <SafeAreaView className="rounded-t-3xl border border-white/10 bg-[#141313] p-5" edges={['bottom']}>
+              <View className="mb-4 flex-row items-center justify-between">
+                <Text className="text-2xl font-bold text-white">Backend URL</Text>
+                <Pressable onPress={closeBackendUrlModal}>
+                  <Text className="text-sm font-semibold text-neutral-300">Close</Text>
+                </Pressable>
+              </View>
+
+              <Text className="mb-2 text-xs text-neutral-400">Example: http://192.168.1.50:3000/api</Text>
+
+              {backendUrlError ? <Text className="mb-2 text-sm text-red-300">{backendUrlError}</Text> : null}
+
+              <View className="gap-3 pb-4">
+                <Input
+                  label="API Base URL"
+                  value={backendUrlDraft}
+                  onChangeText={setBackendUrlDraft}
+                  placeholder="http://192.168.1.50:3000/api"
+                  autoCapitalize="none"
+                />
+
+                <Pressable
+                  className="mt-2 rounded-2xl bg-[#6F31F5] py-4"
+                  onPress={() => void handleSaveBackendUrl()}
+                  disabled={isSavingBackendUrl}
+                >
+                  <Text className="text-center text-base font-bold text-white">
+                    {isSavingBackendUrl ? 'Saving...' : 'Save URL'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  className="rounded-2xl border border-white/15 bg-[#222227] py-4"
+                  onPress={() => void handleResetBackendUrl()}
+                  disabled={isSavingBackendUrl}
+                >
+                  <Text className="text-center text-base font-bold text-neutral-200">Use Default</Text>
+                </Pressable>
+              </View>
+            </SafeAreaView>
+          </View>
       </Modal>
     </SafeAreaView>
   );

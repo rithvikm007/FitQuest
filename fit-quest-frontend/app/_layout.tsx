@@ -4,9 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import '@/global.css';
 import { initDatabase } from '@/database/index';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { SyncProvider } from '@/contexts/SyncContext';
+import { initializeApiBaseUrl } from '@/services/api';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -67,14 +69,14 @@ export default function RootLayout() {
   const [isDbReady, setIsDbReady] = useState(false);
 
   useEffect(() => {
-    // Initialize database before app routes/auth logic run.
-    initDatabase()
+    // Initialize persistence and API config before app routes/auth logic run.
+    Promise.all([initDatabase(), initializeApiBaseUrl()])
       .then(() => {
         setIsDbReady(true);
-        console.log('✓ Database initialized');
+        console.log('✓ App startup initialization complete');
       })
       .catch((error: unknown) => {
-        console.error('Failed to initialize database:', error);
+        console.error('Failed startup initialization:', error);
         setIsDbReady(true);
       });
   }, []);

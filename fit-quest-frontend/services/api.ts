@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import {
@@ -30,9 +31,37 @@ import type {
   WorkoutWithExercises,
 } from '@/types/models';
 
+const API_BASE_URL_KEY = '@fitquest_api_base_url';
+
+function normalizeApiBaseUrl(url: string): string {
+  const trimmed = url.trim();
+
+  if (!trimmed) {
+    throw new Error('Backend URL cannot be empty.');
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    throw new Error('Backend URL is invalid. Example: http://192.168.1.50:3000/api');
+  }
+
+  const cleanPath = parsed.pathname.replace(/\/+$/, '');
+  if (!cleanPath.endsWith('/api')) {
+    parsed.pathname = cleanPath ? `${cleanPath}/api` : '/api';
+  } else {
+    parsed.pathname = cleanPath;
+  }
+
+  return parsed.toString().replace(/\/$/, '');
+}
+
 function resolveApiBaseUrl(): string {
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
+    return normalizeApiBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
   }
 
   // Expo exposes the Metro host in dev; reuse that host for backend on :3000.
@@ -51,7 +80,7 @@ function resolveApiBaseUrl(): string {
   return lanUrl ?? 'http://localhost:3000/api';
 }
 
-const API_BASE_URL = resolveApiBaseUrl();
+let currentApiBaseUrl = resolveApiBaseUrl();
 
 type ApiErrorBody = {
   message?: string;
@@ -86,12 +115,50 @@ type NormalizedPlanBundle = {
 };
 
 export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: currentApiBaseUrl,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+export function getApiBaseUrl(): string {
+  return currentApiBaseUrl;
+}
+
+export async function initializeApiBaseUrl(): Promise<string> {
+  const stored = await AsyncStorage.getItem(API_BASE_URL_KEY);
+
+  if (!stored) {
+    apiClient.defaults.baseURL = currentApiBaseUrl;
+    return currentApiBaseUrl;
+  }
+
+  try {
+    currentApiBaseUrl = normalizeApiBaseUrl(stored);
+  } catch {
+    await AsyncStorage.removeItem(API_BASE_URL_KEY);
+    currentApiBaseUrl = resolveApiBaseUrl();
+  }
+
+  apiClient.defaults.baseURL = currentApiBaseUrl;
+  return currentApiBaseUrl;
+}
+
+export async function setApiBaseUrl(nextBaseUrl: string): Promise<string> {
+  const normalized = normalizeApiBaseUrl(nextBaseUrl);
+  currentApiBaseUrl = normalized;
+  apiClient.defaults.baseURL = normalized;
+  await AsyncStorage.setItem(API_BASE_URL_KEY, normalized);
+  return normalized;
+}
+
+export async function clearApiBaseUrlOverride(): Promise<string> {
+  await AsyncStorage.removeItem(API_BASE_URL_KEY);
+  currentApiBaseUrl = resolveApiBaseUrl();
+  apiClient.defaults.baseURL = currentApiBaseUrl;
+  return currentApiBaseUrl;
+}
 
 function authConfig(token: string): AxiosRequestConfig {
   return {
@@ -527,5 +594,3 @@ export async function syncData(token: string, payload: SyncPayload): Promise<Syn
     throw new Error(`Sync failed: ${getErrorMessage(error)}`);
   }
 }
-
-export { API_BASE_URL };
