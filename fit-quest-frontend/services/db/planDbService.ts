@@ -1,5 +1,5 @@
 import { getDatabase, initDatabase } from '@/database/index';
-import type { Exercise, Plan, PlanExercise, PlanSet, SyncStatus } from '@/types/models';
+import type { Exercise, Plan, PlanExercise, PlanSet, SetSegment, SyncStatus } from '@/types/models';
 
 // ============================================================================
 // Row Types (SQLite -> TypeScript)
@@ -35,6 +35,7 @@ type PlanSetRow = {
   duration: number | null;
   distance: number | null;
   notes: string | null;
+  segmentsJson: string | null;
   orderIndex: number;
   createdAt: string;
 };
@@ -106,6 +107,26 @@ function parseJsonArray(value: string | null, fieldName: string): string[] {
   }
 }
 
+function parseSetSegments(value: string | null): SetSegment[] | undefined {
+  if (!value) return undefined;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed as SetSegment[];
+  } catch {
+    return undefined;
+  }
+}
+
+function serializeSetSegments(segments: SetSegment[] | undefined): string | null {
+  if (!segments || segments.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(segments);
+}
+
 function mapPlanRow(row: PlanRow): Plan {
   return {
     id: row.id,
@@ -141,6 +162,7 @@ function mapPlanSetRow(row: PlanSetRow): PlanSet {
     duration: row.duration ?? undefined,
     distance: row.distance ?? undefined,
     notes: row.notes ?? undefined,
+    segments: parseSetSegments(row.segmentsJson),
     orderIndex: row.orderIndex,
     createdAt: row.createdAt,
   };
@@ -290,10 +312,11 @@ export async function savePlan(
               duration,
               distance,
               notes,
+              segmentsJson,
               orderIndex,
               createdAt
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           `,
           [
             planSet.id ?? generateUuid(),
@@ -305,6 +328,7 @@ export async function savePlan(
             planSet.duration ?? null,
             planSet.distance ?? null,
             planSet.notes ?? null,
+            serializeSetSegments(planSet.segments),
             planSet.orderIndex,
             planSet.createdAt ?? now,
           ]
@@ -522,10 +546,11 @@ export async function updatePlan(
                 duration,
                 distance,
                 notes,
+                segmentsJson,
                 orderIndex,
                 createdAt
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             `,
             [
               planSet.id ?? generateUuid(),
@@ -537,6 +562,7 @@ export async function updatePlan(
               planSet.duration ?? null,
               planSet.distance ?? null,
               planSet.notes ?? null,
+              serializeSetSegments(planSet.segments),
               planSet.orderIndex,
               planSet.createdAt ?? now,
             ]

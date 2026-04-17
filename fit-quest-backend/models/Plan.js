@@ -1,5 +1,19 @@
 const mongoose = require('mongoose');
 
+const setSegmentSchema = {
+	reps: { type: Number },
+	weight: { type: Number },
+	weightUnit: {
+		type: String,
+		enum: ['kg', 'lb'],
+		default: 'kg'
+	},
+	weightKg: { type: Number },
+	duration: { type: Number },
+	distance: { type: Number },
+	notes: { type: String }
+};
+
 const planSchema = new mongoose.Schema({
 	user: {
 		type: mongoose.Schema.Types.ObjectId,
@@ -24,7 +38,8 @@ const planSchema = new mongoose.Schema({
 			weightKg: { type: Number }, // canonical value for calculations
 			duration: { type: Number }, // seconds, for cardio
 			distance: { type: Number }, // meters/km, for cardio
-			notes: { type: String } // optional notes for the set
+			notes: { type: String }, // optional notes for the set
+			segments: [setSegmentSchema] // drop/pyramid entries grouped under one set
 		}]
 	}]
 }, { timestamps: true });

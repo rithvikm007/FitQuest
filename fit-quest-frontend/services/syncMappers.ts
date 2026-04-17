@@ -137,6 +137,7 @@ export function toBackendWorkoutPayload(workout: WorkoutWithExercises): Record<s
           duration: set.duration,
           distance: set.distance,
           notes: set.notes,
+          segments: set.segments,
         })),
     })),
   };
@@ -161,6 +162,7 @@ export function toBackendPlanPayload(plan: PlanWithExercises): Record<string, un
           duration: set.duration,
           distance: set.distance,
           notes: set.notes,
+          segments: set.segments,
         })),
     })),
   };
@@ -260,6 +262,7 @@ export function toLocalWorkoutNormalized(
         duration: set.duration,
         distance: set.distance,
         notes: set.notes,
+        segments: set.segments,
         orderIndex: setIndex,
         createdAt: now,
       });
@@ -348,6 +351,7 @@ export function toLocalPlanNormalized(
         duration: set.duration,
         distance: set.distance,
         notes: set.notes,
+        segments: set.segments,
         orderIndex: setIndex,
         createdAt: now,
       });

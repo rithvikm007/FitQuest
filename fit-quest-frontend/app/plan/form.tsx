@@ -17,13 +17,18 @@ const EXERCISE_PICKER_SELECTION_KEY = '@fitquest_exercise_picker_selection';
 
 type TableColumn = 'reps' | 'weight' | 'duration' | 'distance';
 
-type DraftSet = {
+type DraftSetSegment = {
   id: string;
   reps: string;
   weight: string;
   weightUnit: WeightUnit;
   duration: string;
   distance: string;
+};
+
+type DraftSet = {
+  id: string;
+  segments: DraftSetSegment[];
   notes: string;
 };
 
@@ -68,7 +73,7 @@ function getColumnsForExerciseType(type: ExerciseType): TableColumn[] {
   }
 }
 
-function createEmptyDraftSet(): DraftSet {
+function createEmptyDraftSetSegment(): DraftSetSegment {
   return {
     id: generateUuid(),
     reps: '',
@@ -76,6 +81,13 @@ function createEmptyDraftSet(): DraftSet {
     weightUnit: 'kg',
     duration: '',
     distance: '',
+  };
+}
+
+function createEmptyDraftSet(): DraftSet {
+  return {
+    id: generateUuid(),
+    segments: [createEmptyDraftSetSegment()],
     notes: '',
   };
 }
@@ -137,6 +149,33 @@ function toOptionalNumber(value: string): number | undefined {
   return numeric;
 }
 
+function toDraftSetFromPersistedSet(setRow: PlanSet): DraftSet {
+  const persistedSegments = setRow.segments && setRow.segments.length > 0
+    ? setRow.segments
+    : [
+        {
+          reps: setRow.reps,
+          weight: setRow.weight,
+          weightUnit: setRow.weightUnit,
+          duration: setRow.duration,
+          distance: setRow.distance,
+        },
+      ];
+
+  return {
+    id: generateUuid(),
+    segments: persistedSegments.map((segment) => ({
+      id: generateUuid(),
+      reps: segment.reps !== undefined ? String(segment.reps) : '',
+      weight: segment.weight !== undefined ? String(segment.weight) : '',
+      weightUnit: normalizeWeightUnit(segment.weightUnit),
+      duration: segment.duration !== undefined ? String(segment.duration) : '',
+      distance: segment.distance !== undefined ? String(segment.distance) : '',
+    })),
+    notes: setRow.notes ?? '',
+  };
+}
+
 export default function PlanFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -178,15 +217,7 @@ export default function PlanFormScreen() {
             exerciseId: entry.exerciseId,
             exercise: entry.exercise,
             sets: entry.sets.length
-              ? entry.sets.map((setRow) => ({
-                  id: generateUuid(),
-                  reps: setRow.reps !== undefined ? String(setRow.reps) : '',
-                  weight: setRow.weight !== undefined ? String(setRow.weight) : '',
-                  weightUnit: normalizeWeightUnit(setRow.weightUnit),
-                  duration: setRow.duration !== undefined ? String(setRow.duration) : '',
-                  distance: setRow.distance !== undefined ? String(setRow.distance) : '',
-                  notes: setRow.notes ?? '',
-                }))
+              ? entry.sets.map((setRow) => toDraftSetFromPersistedSet(setRow))
               : [createEmptyDraftSet()],
           }))
         );
@@ -297,7 +328,7 @@ export default function PlanFormScreen() {
   const updateSetField = (
     draftExerciseId: string,
     draftSetId: string,
-    field: keyof DraftSet,
+    field: 'notes',
     value: string
   ) => {
     setDraftExercises((current) =>
@@ -311,6 +342,86 @@ export default function PlanFormScreen() {
           sets: item.sets.map((setItem) =>
             setItem.id === draftSetId ? { ...setItem, [field]: value } : setItem
           ),
+        };
+      })
+    );
+  };
+
+  const addSegmentToSet = (draftExerciseId: string, draftSetId: string) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) =>
+            setItem.id === draftSetId
+              ? { ...setItem, segments: [...setItem.segments, createEmptyDraftSetSegment()] }
+              : setItem
+          ),
+        };
+      })
+    );
+  };
+
+  const removeSegmentFromSet = (
+    draftExerciseId: string,
+    draftSetId: string,
+    segmentId: string
+  ) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) => {
+            if (setItem.id !== draftSetId) {
+              return setItem;
+            }
+
+            const nextSegments = setItem.segments.filter((segment) => segment.id !== segmentId);
+            return {
+              ...setItem,
+              segments: nextSegments.length > 0 ? nextSegments : [createEmptyDraftSetSegment()],
+            };
+          }),
+        };
+      })
+    );
+  };
+
+  const updateSegmentField = (
+    draftExerciseId: string,
+    draftSetId: string,
+    segmentId: string,
+    field: keyof DraftSetSegment,
+    value: string
+  ) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) => {
+            if (setItem.id !== draftSetId) {
+              return setItem;
+            }
+
+            return {
+              ...setItem,
+              segments: setItem.segments.map((segment) =>
+                segment.id === segmentId ? { ...segment, [field]: value } : segment
+              ),
+            };
+          }),
         };
       })
     );
@@ -344,6 +455,22 @@ export default function PlanFormScreen() {
     for (const draftExercise of draftExercises) {
       if (draftExercise.sets.length === 0) {
         return `Add at least one set for ${draftExercise.exercise.name}.`;
+      }
+
+      const columns = getColumnsForExerciseType(draftExercise.exercise.type);
+      for (const draftSet of draftExercise.sets) {
+        const hasAnyMetricInSet = draftSet.segments.some((segment) =>
+          columns.some((column) => {
+            if (column === 'reps') return Boolean(segment.reps.trim());
+            if (column === 'weight') return Boolean(segment.weight.trim());
+            if (column === 'duration') return Boolean(segment.duration.trim());
+            return Boolean(segment.distance.trim());
+          })
+        );
+
+        if (!hasAnyMetricInSet) {
+          return `Each set for ${draftExercise.exercise.name} must have at least one value.`;
+        }
       }
     }
 
@@ -402,17 +529,32 @@ export default function PlanFormScreen() {
         });
 
         draftExercise.sets.forEach((draftSet, setIndex) => {
-          const parsedWeight = toOptionalNumber(draftSet.weight);
+          const parsedSegments = draftSet.segments.map((segment) => {
+            const segmentWeight = toOptionalNumber(segment.weight);
+
+            return {
+              reps: toOptionalNumber(segment.reps),
+              weight: segmentWeight,
+              weightUnit: segmentWeight !== undefined ? segment.weightUnit : undefined,
+              weightKg: toWeightKg(segmentWeight, segment.weightUnit),
+              duration: toOptionalNumber(segment.duration),
+              distance: toOptionalNumber(segment.distance),
+            };
+          });
+
+          const primarySegment = parsedSegments[0] ?? {};
+
           planSets.push({
             id: generateUuid(),
             planExerciseId,
-            reps: toOptionalNumber(draftSet.reps),
-            weight: parsedWeight,
-            weightUnit: parsedWeight !== undefined ? draftSet.weightUnit : undefined,
-            weightKg: toWeightKg(parsedWeight, draftSet.weightUnit),
-            duration: toOptionalNumber(draftSet.duration),
-            distance: toOptionalNumber(draftSet.distance),
+            reps: primarySegment.reps,
+            weight: primarySegment.weight,
+            weightUnit: primarySegment.weightUnit,
+            weightKg: primarySegment.weightKg,
+            duration: primarySegment.duration,
+            distance: primarySegment.distance,
             notes: draftSet.notes.trim() || undefined,
+            segments: parsedSegments,
             orderIndex: setIndex,
             createdAt: now,
           });
@@ -527,75 +669,106 @@ export default function PlanFormScreen() {
                             </Pressable>
                           </View>
 
-                          <View className="gap-2">
-                            {columns.includes('reps') ? (
-                              <Input
-                                label="Target Reps"
-                                value={draftSet.reps}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'reps', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 10"
-                              />
-                            ) : null}
+                          <View className="gap-3">
+                            {draftSet.segments.map((segment, segmentIndex) => (
+                              <View key={segment.id} className="rounded-lg border border-white/10 bg-[#232328] p-3">
+                                <View className="mb-2 flex-row items-center justify-between">
+                                  <Text className="text-xs font-semibold uppercase tracking-[1px] text-[#DBB8FF]">
+                                    Entry {segmentIndex + 1}
+                                  </Text>
+                                  <Pressable
+                                    className="rounded-md border border-white/10 bg-[#2F2F34] px-2 py-1"
+                                    onPress={() => removeSegmentFromSet(draftExercise.id, draftSet.id, segment.id)}
+                                  >
+                                    <Text className="text-[11px] text-neutral-200">Remove Entry</Text>
+                                  </Pressable>
+                                </View>
 
-                            {columns.includes('weight') ? (
-                              <View className="gap-2">
-                                <Input
-                                  label={`Target Weight (${draftSet.weightUnit.toUpperCase()})`}
-                                  value={draftSet.weight}
-                                  onChangeText={(value) =>
-                                    updateSetField(draftExercise.id, draftSet.id, 'weight', value)
-                                  }
-                                  keyboardType="numeric"
-                                  placeholder="e.g. 60"
-                                />
-                                <View className="flex-row rounded-lg border border-white/10 bg-[#2B2B30] p-1">
-                                  {(['kg', 'lb'] as WeightUnit[]).map((unit) => {
-                                    const selected = draftSet.weightUnit === unit;
+                                <View className="gap-2">
+                                  {columns.includes('reps') ? (
+                                    <Input
+                                      label="Target Reps"
+                                      value={segment.reps}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'reps', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 10"
+                                    />
+                                  ) : null}
 
-                                    return (
-                                      <Pressable
-                                        key={unit}
-                                        className={`flex-1 rounded-md px-3 py-2 ${selected ? 'bg-[#6F31F5]' : 'bg-transparent'}`}
-                                        onPress={() =>
-                                          updateSetField(draftExercise.id, draftSet.id, 'weightUnit', unit)
+                                  {columns.includes('weight') ? (
+                                    <View className="gap-2">
+                                      <Input
+                                        label={`Target Weight (${segment.weightUnit.toUpperCase()})`}
+                                        value={segment.weight}
+                                        onChangeText={(value) =>
+                                          updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'weight', value)
                                         }
-                                      >
-                                        <Text className={`text-center text-xs font-semibold ${selected ? 'text-white' : 'text-neutral-300'}`}>
-                                          {unit.toUpperCase()}
-                                        </Text>
-                                      </Pressable>
-                                    );
-                                  })}
+                                        keyboardType="numeric"
+                                        placeholder="e.g. 60"
+                                      />
+                                      <View className="flex-row rounded-lg border border-white/10 bg-[#2B2B30] p-1">
+                                        {(['kg', 'lb'] as WeightUnit[]).map((unit) => {
+                                          const selected = segment.weightUnit === unit;
+
+                                          return (
+                                            <Pressable
+                                              key={unit}
+                                              className={`flex-1 rounded-md px-3 py-2 ${selected ? 'bg-[#6F31F5]' : 'bg-transparent'}`}
+                                              onPress={() =>
+                                                updateSegmentField(
+                                                  draftExercise.id,
+                                                  draftSet.id,
+                                                  segment.id,
+                                                  'weightUnit',
+                                                  unit
+                                                )
+                                              }
+                                            >
+                                              <Text className={`text-center text-xs font-semibold ${selected ? 'text-white' : 'text-neutral-300'}`}>
+                                                {unit.toUpperCase()}
+                                              </Text>
+                                            </Pressable>
+                                          );
+                                        })}
+                                      </View>
+                                    </View>
+                                  ) : null}
+
+                                  {columns.includes('duration') ? (
+                                    <Input
+                                      label="Target Duration (seconds)"
+                                      value={segment.duration}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'duration', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 45"
+                                    />
+                                  ) : null}
+
+                                  {columns.includes('distance') ? (
+                                    <Input
+                                      label="Target Distance"
+                                      value={segment.distance}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'distance', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 1000"
+                                    />
+                                  ) : null}
                                 </View>
                               </View>
-                            ) : null}
+                            ))}
 
-                            {columns.includes('duration') ? (
-                              <Input
-                                label="Target Duration (seconds)"
-                                value={draftSet.duration}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'duration', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 45"
-                              />
-                            ) : null}
-
-                            {columns.includes('distance') ? (
-                              <Input
-                                label="Target Distance"
-                                value={draftSet.distance}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'distance', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 1000"
-                              />
-                            ) : null}
+                            <Pressable
+                              className="self-start rounded-lg border border-[#6F31F5]/40 bg-[#2A2140] px-3 py-2"
+                              onPress={() => addSegmentToSet(draftExercise.id, draftSet.id)}
+                            >
+                              <Text className="text-xs font-semibold text-[#DBB8FF]">Add Drop/Pyramid Entry</Text>
+                            </Pressable>
 
                             <Input
                               label="Set Notes (optional)"

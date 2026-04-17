@@ -77,6 +77,16 @@ export type Equipment =
 export type SyncOperation = 'create' | 'update' | 'delete';
 export type WeightUnit = 'kg' | 'lb';
 
+export interface SetSegment {
+  reps?: number;
+  weight?: number;
+  weightUnit?: WeightUnit;
+  weightKg?: number;
+  duration?: number;
+  distance?: number;
+  notes?: string;
+}
+
 // ============================================================================
 // Core Entity Interfaces
 // ============================================================================
@@ -149,6 +159,7 @@ export interface WorkoutSet {
   duration?: number; // seconds
   distance?: number; // meters
   notes?: string;
+  segments?: SetSegment[];
   orderIndex: number;
   createdAt: string; // ISO date string
 }
@@ -183,8 +194,20 @@ export interface PlanSet {
   duration?: number; // seconds
   distance?: number; // meters
   notes?: string;
+  segments?: SetSegment[];
   orderIndex: number;
   createdAt: string; // ISO date string
+}
+
+export interface BackendSetDocument {
+  reps?: number;
+  weight?: number;
+  weightUnit?: WeightUnit;
+  weightKg?: number;
+  duration?: number;
+  distance?: number;
+  notes?: string;
+  segments?: SetSegment[];
 }
 
 export interface SyncQueueItem {
@@ -231,15 +254,7 @@ export interface BackendExerciseDocument {
 
 export interface BackendWorkoutExerciseDocument {
   exercise: string;
-  sets: Array<{
-    reps?: number;
-    weight?: number;
-    weightUnit?: WeightUnit;
-    weightKg?: number;
-    duration?: number;
-    distance?: number;
-    notes?: string;
-  }>;
+  sets: BackendSetDocument[];
 }
 
 export interface BackendWorkoutDocument {

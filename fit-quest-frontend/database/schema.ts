@@ -84,6 +84,7 @@ export const CREATE_WORKOUT_SETS_TABLE = `
     duration INTEGER,
     distance REAL,
     notes TEXT,
+    segmentsJson TEXT,
     orderIndex INTEGER NOT NULL,
     createdAt TEXT NOT NULL,
     FOREIGN KEY (workoutExerciseId) REFERENCES workout_exercises(id) ON DELETE CASCADE
@@ -128,6 +129,7 @@ export const CREATE_PLAN_SETS_TABLE = `
     duration INTEGER,
     distance REAL,
     notes TEXT,
+    segmentsJson TEXT,
     orderIndex INTEGER NOT NULL,
     createdAt TEXT NOT NULL,
     FOREIGN KEY (planExerciseId) REFERENCES plan_exercises(id) ON DELETE CASCADE
@@ -186,9 +188,11 @@ export const ADDITIVE_MIGRATIONS = [
   "ALTER TABLE workouts ADD COLUMN sourcePlanRemoteId TEXT;",
   "ALTER TABLE workout_sets ADD COLUMN weightUnit TEXT;",
   "ALTER TABLE workout_sets ADD COLUMN weightKg REAL;",
+  "ALTER TABLE workout_sets ADD COLUMN segmentsJson TEXT;",
   "ALTER TABLE plans ADD COLUMN remoteId TEXT;",
   "ALTER TABLE plan_sets ADD COLUMN weightUnit TEXT;",
-  "ALTER TABLE plan_sets ADD COLUMN weightKg REAL;"
+  "ALTER TABLE plan_sets ADD COLUMN weightKg REAL;",
+  "ALTER TABLE plan_sets ADD COLUMN segmentsJson TEXT;"
 ];
 
 // All table creation statements in order

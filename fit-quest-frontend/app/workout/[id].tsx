@@ -75,6 +75,30 @@ function getColumnHeader(column: TableColumn): string {
 }
 
 function getSetValue(set: WorkoutSet, column: TableColumn): string {
+  if (set.segments && set.segments.length > 0) {
+    const segmentValues = set.segments
+      .map((segment) => {
+        if (column === 'reps') {
+          return segment.reps !== undefined ? String(segment.reps) : '-';
+        }
+
+        if (column === 'weight') {
+          return segment.weight !== undefined ? `${segment.weight} ${segment.weightUnit ?? 'kg'}` : '-';
+        }
+
+        if (column === 'duration') {
+          return segment.duration !== undefined ? `${segment.duration}s` : '-';
+        }
+
+        return segment.distance !== undefined ? String(segment.distance) : '-';
+      })
+      .filter((value) => value !== '-');
+
+    if (segmentValues.length > 0) {
+      return segmentValues.join(' -> ');
+    }
+  }
+
   if (column === 'reps') {
     return set.reps !== undefined ? String(set.reps) : '-';
   }
@@ -211,6 +235,7 @@ export default function WorkoutDetailScreen() {
           duration: setRow.duration,
           distance: setRow.distance,
           notes: setRow.notes,
+          segments: setRow.segments,
           orderIndex: index,
           createdAt: nowIso,
         }));

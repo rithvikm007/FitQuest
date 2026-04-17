@@ -2,6 +2,39 @@
 
 const VALID_WEIGHT_UNITS = ['kg', 'lb'];
 
+const validateSetMetricObject = (setLike, errors, label) => {
+  if (!setLike || typeof setLike !== 'object') {
+    errors.push(`${label} is invalid`);
+    return;
+  }
+
+  const hasWeight = setLike.weight !== undefined && setLike.weight !== null;
+  const hasWeightUnit = setLike.weightUnit !== undefined && setLike.weightUnit !== null;
+  const hasWeightKg = setLike.weightKg !== undefined && setLike.weightKg !== null;
+
+  if (hasWeight) {
+    if (typeof setLike.weight !== 'number' || !Number.isFinite(setLike.weight) || setLike.weight < 0) {
+      errors.push(`${label} has invalid weight`);
+    }
+  }
+
+  if (hasWeightUnit) {
+    if (typeof setLike.weightUnit !== 'string' || !VALID_WEIGHT_UNITS.includes(setLike.weightUnit.toLowerCase())) {
+      errors.push(`${label} has invalid weightUnit; allowed: kg, lb`);
+    }
+  }
+
+  if (!hasWeight && hasWeightUnit) {
+    errors.push(`${label} cannot include weightUnit without weight`);
+  }
+
+  if (hasWeightKg) {
+    if (typeof setLike.weightKg !== 'number' || !Number.isFinite(setLike.weightKg) || setLike.weightKg < 0) {
+      errors.push(`${label} has invalid weightKg`);
+    }
+  }
+};
+
 const validateExerciseSets = (exercises, errors, contextLabel) => {
   exercises.forEach((ex, index) => {
     if (!ex.exercise) {
@@ -19,30 +52,25 @@ const validateExerciseSets = (exercises, errors, contextLabel) => {
         return;
       }
 
-      const hasWeight = set.weight !== undefined && set.weight !== null;
-      const hasWeightUnit = set.weightUnit !== undefined && set.weightUnit !== null;
-      const hasWeightKg = set.weightKg !== undefined && set.weightKg !== null;
+      validateSetMetricObject(
+        set,
+        errors,
+        `${contextLabel} at index ${index} set ${setIndex}`
+      );
 
-      if (hasWeight) {
-        if (typeof set.weight !== 'number' || !Number.isFinite(set.weight) || set.weight < 0) {
-          errors.push(`${contextLabel} at index ${index} has invalid weight at set ${setIndex}`);
+      if (set.segments !== undefined) {
+        if (!Array.isArray(set.segments) || set.segments.length === 0) {
+          errors.push(`${contextLabel} at index ${index} set ${setIndex} has invalid segments`);
+          return;
         }
-      }
 
-      if (hasWeightUnit) {
-        if (typeof set.weightUnit !== 'string' || !VALID_WEIGHT_UNITS.includes(set.weightUnit.toLowerCase())) {
-          errors.push(`${contextLabel} at index ${index} has invalid weightUnit at set ${setIndex}; allowed: kg, lb`);
-        }
-      }
-
-      if (!hasWeight && hasWeightUnit) {
-        errors.push(`${contextLabel} at index ${index} set ${setIndex} cannot include weightUnit without weight`);
-      }
-
-      if (hasWeightKg) {
-        if (typeof set.weightKg !== 'number' || !Number.isFinite(set.weightKg) || set.weightKg < 0) {
-          errors.push(`${contextLabel} at index ${index} has invalid weightKg at set ${setIndex}`);
-        }
+        set.segments.forEach((segment, segmentIndex) => {
+          validateSetMetricObject(
+            segment,
+            errors,
+            `${contextLabel} at index ${index} set ${setIndex} segment ${segmentIndex}`
+          );
+        });
       }
     });
   });

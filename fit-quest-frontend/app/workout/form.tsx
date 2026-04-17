@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,13 +18,18 @@ const EXERCISE_PICKER_SELECTION_KEY = '@fitquest_exercise_picker_selection';
 
 type TableColumn = 'reps' | 'weight' | 'duration' | 'distance';
 
-type DraftSet = {
+type DraftSetSegment = {
   id: string;
   reps: string;
   weight: string;
   weightUnit: WeightUnit;
   duration: string;
   distance: string;
+};
+
+type DraftSet = {
+  id: string;
+  segments: DraftSetSegment[];
   notes: string;
 };
 
@@ -69,7 +74,7 @@ function getColumnsForExerciseType(type: ExerciseType): TableColumn[] {
   }
 }
 
-function createEmptyDraftSet(): DraftSet {
+function createEmptyDraftSetSegment(): DraftSetSegment {
   return {
     id: generateUuid(),
     reps: '',
@@ -77,6 +82,13 @@ function createEmptyDraftSet(): DraftSet {
     weightUnit: 'kg',
     duration: '',
     distance: '',
+  };
+}
+
+function createEmptyDraftSet(): DraftSet {
+  return {
+    id: generateUuid(),
+    segments: [createEmptyDraftSetSegment()],
     notes: '',
   };
 }
@@ -127,6 +139,33 @@ function toOptionalNumber(value: string): number | undefined {
   }
 
   return numeric;
+}
+
+function toDraftSetFromPersistedSet(setRow: WorkoutSet): DraftSet {
+  const persistedSegments = setRow.segments && setRow.segments.length > 0
+    ? setRow.segments
+    : [
+        {
+          reps: setRow.reps,
+          weight: setRow.weight,
+          weightUnit: setRow.weightUnit,
+          duration: setRow.duration,
+          distance: setRow.distance,
+        },
+      ];
+
+  return {
+    id: generateUuid(),
+    segments: persistedSegments.map((segment) => ({
+      id: generateUuid(),
+      reps: segment.reps !== undefined ? String(segment.reps) : '',
+      weight: segment.weight !== undefined ? String(segment.weight) : '',
+      weightUnit: normalizeWeightUnit(segment.weightUnit),
+      duration: segment.duration !== undefined ? String(segment.duration) : '',
+      distance: segment.distance !== undefined ? String(segment.distance) : '',
+    })),
+    notes: setRow.notes ?? '',
+  };
 }
 
 export default function WorkoutFormScreen() {
@@ -180,15 +219,7 @@ export default function WorkoutFormScreen() {
               exerciseId: entry.exerciseId,
               exercise: entry.exercise,
               sets: entry.sets.length
-                ? entry.sets.map((setRow) => ({
-                    id: generateUuid(),
-                    reps: setRow.reps !== undefined ? String(setRow.reps) : '',
-                    weight: setRow.weight !== undefined ? String(setRow.weight) : '',
-                    weightUnit: normalizeWeightUnit(setRow.weightUnit),
-                    duration: setRow.duration !== undefined ? String(setRow.duration) : '',
-                    distance: setRow.distance !== undefined ? String(setRow.distance) : '',
-                    notes: setRow.notes ?? '',
-                  }))
+                ? entry.sets.map((setRow) => toDraftSetFromPersistedSet(setRow))
                 : [createEmptyDraftSet()],
             }))
           );
@@ -209,15 +240,7 @@ export default function WorkoutFormScreen() {
                 exerciseId: entry.exerciseId,
                 exercise: entry.exercise,
                 sets: entry.sets.length
-                  ? entry.sets.map((setRow) => ({
-                      id: generateUuid(),
-                      reps: setRow.reps !== undefined ? String(setRow.reps) : '',
-                      weight: setRow.weight !== undefined ? String(setRow.weight) : '',
-                      weightUnit: normalizeWeightUnit(setRow.weightUnit),
-                      duration: setRow.duration !== undefined ? String(setRow.duration) : '',
-                      distance: setRow.distance !== undefined ? String(setRow.distance) : '',
-                      notes: setRow.notes ?? '',
-                    }))
+                  ? entry.sets.map((setRow) => toDraftSetFromPersistedSet(setRow))
                   : [createEmptyDraftSet()],
               }))
             );
@@ -239,65 +262,64 @@ export default function WorkoutFormScreen() {
     [draftExercises]
   );
 
-  const addExerciseToDraft = async (exerciseId: string) => {
-    if (selectedExerciseIds.has(exerciseId)) {
-      setError('That exercise is already added to this workout.');
-      return;
-    }
-
-    try {
-      const exercise = await getExerciseById(exerciseId);
-      if (!exercise) {
-        setError('Selected exercise no longer exists.');
+  const addExerciseToDraft = useCallback(
+    async (exerciseId: string) => {
+      if (selectedExerciseIds.has(exerciseId)) {
+        setError('That exercise is already added to this workout.');
         return;
       }
 
-      setDraftExercises((current) => [
-        ...current,
-        {
-          id: generateUuid(),
-          exerciseId: exercise.id,
-          exercise,
-          sets: [createEmptyDraftSet()],
-        },
-      ]);
+      try {
+        const exercise = await getExerciseById(exerciseId);
+        if (!exercise) {
+          setError('Selected exercise no longer exists.');
+          return;
+        }
 
-      setError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    }
-  };
+        setDraftExercises((current) => [
+          ...current,
+          {
+            id: generateUuid(),
+            exerciseId: exercise.id,
+            exercise,
+            sets: [createEmptyDraftSet()],
+          },
+        ]);
+
+        setError(null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+      }
+    },
+    [selectedExerciseIds]
+  );
 
   useFocusEffect(
-    useMemo(
-      () =>
-        () => {
-          const consumeSelection = async () => {
-            try {
-              const rawSelection = await AsyncStorage.getItem(EXERCISE_PICKER_SELECTION_KEY);
-              if (!rawSelection) {
-                return;
-              }
+    useCallback(() => {
+      const consumeSelection = async () => {
+        try {
+          const rawSelection = await AsyncStorage.getItem(EXERCISE_PICKER_SELECTION_KEY);
+          if (!rawSelection) {
+            return;
+          }
 
-              await AsyncStorage.removeItem(EXERCISE_PICKER_SELECTION_KEY);
+          await AsyncStorage.removeItem(EXERCISE_PICKER_SELECTION_KEY);
 
-              const parsed = JSON.parse(rawSelection) as { exerciseId?: string };
-              if (!parsed.exerciseId) {
-                return;
-              }
+          const parsed = JSON.parse(rawSelection) as { exerciseId?: string };
+          if (!parsed.exerciseId) {
+            return;
+          }
 
-              await addExerciseToDraft(parsed.exerciseId);
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              setError(message);
-            }
-          };
+          await addExerciseToDraft(parsed.exerciseId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setError(message);
+        }
+      };
 
-          void consumeSelection();
-        },
-      [addExerciseToDraft]
-    )
+      void consumeSelection();
+    }, [addExerciseToDraft])
   );
 
   const removeExerciseFromDraft = (draftExerciseId: string) => {
@@ -331,7 +353,7 @@ export default function WorkoutFormScreen() {
   const updateSetField = (
     draftExerciseId: string,
     draftSetId: string,
-    field: keyof DraftSet,
+    field: 'notes',
     value: string
   ) => {
     setDraftExercises((current) =>
@@ -345,6 +367,86 @@ export default function WorkoutFormScreen() {
           sets: item.sets.map((setItem) =>
             setItem.id === draftSetId ? { ...setItem, [field]: value } : setItem
           ),
+        };
+      })
+    );
+  };
+
+  const addSegmentToSet = (draftExerciseId: string, draftSetId: string) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) =>
+            setItem.id === draftSetId
+              ? { ...setItem, segments: [...setItem.segments, createEmptyDraftSetSegment()] }
+              : setItem
+          ),
+        };
+      })
+    );
+  };
+
+  const removeSegmentFromSet = (
+    draftExerciseId: string,
+    draftSetId: string,
+    segmentId: string
+  ) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) => {
+            if (setItem.id !== draftSetId) {
+              return setItem;
+            }
+
+            const nextSegments = setItem.segments.filter((segment) => segment.id !== segmentId);
+            return {
+              ...setItem,
+              segments: nextSegments.length > 0 ? nextSegments : [createEmptyDraftSetSegment()],
+            };
+          }),
+        };
+      })
+    );
+  };
+
+  const updateSegmentField = (
+    draftExerciseId: string,
+    draftSetId: string,
+    segmentId: string,
+    field: keyof DraftSetSegment,
+    value: string
+  ) => {
+    setDraftExercises((current) =>
+      current.map((item) => {
+        if (item.id !== draftExerciseId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          sets: item.sets.map((setItem) => {
+            if (setItem.id !== draftSetId) {
+              return setItem;
+            }
+
+            return {
+              ...setItem,
+              segments: setItem.segments.map((segment) =>
+                segment.id === segmentId ? { ...segment, [field]: value } : segment
+              ),
+            };
+          }),
         };
       })
     );
@@ -367,14 +469,16 @@ export default function WorkoutFormScreen() {
 
       const columns = getColumnsForExerciseType(draftExercise.exercise.type);
       for (const draftSet of draftExercise.sets) {
-        const hasAnyMetric = columns.some((column) => {
-          if (column === 'reps') return Boolean(draftSet.reps.trim());
-          if (column === 'weight') return Boolean(draftSet.weight.trim());
-          if (column === 'duration') return Boolean(draftSet.duration.trim());
-          return Boolean(draftSet.distance.trim());
-        });
+        const hasAnyMetricInSet = draftSet.segments.some((segment) =>
+          columns.some((column) => {
+            if (column === 'reps') return Boolean(segment.reps.trim());
+            if (column === 'weight') return Boolean(segment.weight.trim());
+            if (column === 'duration') return Boolean(segment.duration.trim());
+            return Boolean(segment.distance.trim());
+          })
+        );
 
-        if (!hasAnyMetric) {
+        if (!hasAnyMetricInSet) {
           return `Each set for ${draftExercise.exercise.name} must have at least one value.`;
         }
       }
@@ -438,17 +542,32 @@ export default function WorkoutFormScreen() {
         });
 
         draftExercise.sets.forEach((draftSet, setIndex) => {
-          const parsedWeight = toOptionalNumber(draftSet.weight);
+          const parsedSegments = draftSet.segments.map((segment) => {
+            const segmentWeight = toOptionalNumber(segment.weight);
+
+            return {
+              reps: toOptionalNumber(segment.reps),
+              weight: segmentWeight,
+              weightUnit: segmentWeight !== undefined ? segment.weightUnit : undefined,
+              weightKg: toWeightKg(segmentWeight, segment.weightUnit),
+              duration: toOptionalNumber(segment.duration),
+              distance: toOptionalNumber(segment.distance),
+            };
+          });
+
+          const primarySegment = parsedSegments[0] ?? {};
+
           workoutSets.push({
             id: generateUuid(),
             workoutExerciseId,
-            reps: toOptionalNumber(draftSet.reps),
-            weight: parsedWeight,
-            weightUnit: parsedWeight !== undefined ? draftSet.weightUnit : undefined,
-            weightKg: toWeightKg(parsedWeight, draftSet.weightUnit),
-            duration: toOptionalNumber(draftSet.duration),
-            distance: toOptionalNumber(draftSet.distance),
+            reps: primarySegment.reps,
+            weight: primarySegment.weight,
+            weightUnit: primarySegment.weightUnit,
+            weightKg: primarySegment.weightKg,
+            duration: primarySegment.duration,
+            distance: primarySegment.distance,
             notes: draftSet.notes.trim() || undefined,
+            segments: parsedSegments,
             orderIndex: setIndex,
             createdAt: now,
           });
@@ -574,75 +693,106 @@ export default function WorkoutFormScreen() {
                             </Pressable>
                           </View>
 
-                          <View className="gap-2">
-                            {columns.includes('reps') ? (
-                              <Input
-                                label="Reps"
-                                value={draftSet.reps}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'reps', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 10"
-                              />
-                            ) : null}
+                          <View className="gap-3">
+                            {draftSet.segments.map((segment, segmentIndex) => (
+                              <View key={segment.id} className="rounded-lg border border-white/10 bg-[#232328] p-3">
+                                <View className="mb-2 flex-row items-center justify-between">
+                                  <Text className="text-xs font-semibold uppercase tracking-[1px] text-[#DBB8FF]">
+                                    Entry {segmentIndex + 1}
+                                  </Text>
+                                  <Pressable
+                                    className="rounded-md border border-white/10 bg-[#2F2F34] px-2 py-1"
+                                    onPress={() => removeSegmentFromSet(draftExercise.id, draftSet.id, segment.id)}
+                                  >
+                                    <Text className="text-[11px] text-neutral-200">Remove Entry</Text>
+                                  </Pressable>
+                                </View>
 
-                            {columns.includes('weight') ? (
-                              <View className="gap-2">
-                                <Input
-                                  label={`Weight (${draftSet.weightUnit.toUpperCase()})`}
-                                  value={draftSet.weight}
-                                  onChangeText={(value) =>
-                                    updateSetField(draftExercise.id, draftSet.id, 'weight', value)
-                                  }
-                                  keyboardType="numeric"
-                                  placeholder="e.g. 60"
-                                />
-                                <View className="flex-row rounded-lg border border-white/10 bg-[#2B2B30] p-1">
-                                  {(['kg', 'lb'] as WeightUnit[]).map((unit) => {
-                                    const selected = draftSet.weightUnit === unit;
+                                <View className="gap-2">
+                                  {columns.includes('reps') ? (
+                                    <Input
+                                      label="Reps"
+                                      value={segment.reps}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'reps', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 10"
+                                    />
+                                  ) : null}
 
-                                    return (
-                                      <Pressable
-                                        key={unit}
-                                        className={`flex-1 rounded-md px-3 py-2 ${selected ? 'bg-[#6F31F5]' : 'bg-transparent'}`}
-                                        onPress={() =>
-                                          updateSetField(draftExercise.id, draftSet.id, 'weightUnit', unit)
+                                  {columns.includes('weight') ? (
+                                    <View className="gap-2">
+                                      <Input
+                                        label={`Weight (${segment.weightUnit.toUpperCase()})`}
+                                        value={segment.weight}
+                                        onChangeText={(value) =>
+                                          updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'weight', value)
                                         }
-                                      >
-                                        <Text className={`text-center text-xs font-semibold ${selected ? 'text-white' : 'text-neutral-300'}`}>
-                                          {unit.toUpperCase()}
-                                        </Text>
-                                      </Pressable>
-                                    );
-                                  })}
+                                        keyboardType="numeric"
+                                        placeholder="e.g. 60"
+                                      />
+                                      <View className="flex-row rounded-lg border border-white/10 bg-[#2B2B30] p-1">
+                                        {(['kg', 'lb'] as WeightUnit[]).map((unit) => {
+                                          const selected = segment.weightUnit === unit;
+
+                                          return (
+                                            <Pressable
+                                              key={unit}
+                                              className={`flex-1 rounded-md px-3 py-2 ${selected ? 'bg-[#6F31F5]' : 'bg-transparent'}`}
+                                              onPress={() =>
+                                                updateSegmentField(
+                                                  draftExercise.id,
+                                                  draftSet.id,
+                                                  segment.id,
+                                                  'weightUnit',
+                                                  unit
+                                                )
+                                              }
+                                            >
+                                              <Text className={`text-center text-xs font-semibold ${selected ? 'text-white' : 'text-neutral-300'}`}>
+                                                {unit.toUpperCase()}
+                                              </Text>
+                                            </Pressable>
+                                          );
+                                        })}
+                                      </View>
+                                    </View>
+                                  ) : null}
+
+                                  {columns.includes('duration') ? (
+                                    <Input
+                                      label="Duration (seconds)"
+                                      value={segment.duration}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'duration', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 45"
+                                    />
+                                  ) : null}
+
+                                  {columns.includes('distance') ? (
+                                    <Input
+                                      label="Distance"
+                                      value={segment.distance}
+                                      onChangeText={(value) =>
+                                        updateSegmentField(draftExercise.id, draftSet.id, segment.id, 'distance', value)
+                                      }
+                                      keyboardType="numeric"
+                                      placeholder="e.g. 1000"
+                                    />
+                                  ) : null}
                                 </View>
                               </View>
-                            ) : null}
+                            ))}
 
-                            {columns.includes('duration') ? (
-                              <Input
-                                label="Duration (seconds)"
-                                value={draftSet.duration}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'duration', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 45"
-                              />
-                            ) : null}
-
-                            {columns.includes('distance') ? (
-                              <Input
-                                label="Distance"
-                                value={draftSet.distance}
-                                onChangeText={(value) =>
-                                  updateSetField(draftExercise.id, draftSet.id, 'distance', value)
-                                }
-                                keyboardType="numeric"
-                                placeholder="e.g. 1000"
-                              />
-                            ) : null}
+                            <Pressable
+                              className="self-start rounded-lg border border-[#6F31F5]/40 bg-[#2A2140] px-3 py-2"
+                              onPress={() => addSegmentToSet(draftExercise.id, draftSet.id)}
+                            >
+                              <Text className="text-xs font-semibold text-[#DBB8FF]">Add Drop/Pyramid Entry</Text>
+                            </Pressable>
 
                             <Input
                               label="Set Notes (optional)"

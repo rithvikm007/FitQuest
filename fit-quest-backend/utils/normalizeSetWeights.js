@@ -10,28 +10,40 @@ const normalizeUnit = (unit) => {
     return unit.toLowerCase() === 'lb' ? 'lb' : 'kg';
 };
 
-const normalizeSet = (set = {}) => {
-    if (!isPresent(set.weight)) {
+const normalizeMetricBlock = (metric = {}) => {
+    if (!isPresent(metric.weight)) {
         return {
-            ...set,
-            weightUnit: isPresent(set.weightUnit) ? normalizeUnit(set.weightUnit) : set.weightUnit,
+            ...metric,
+            weightUnit: isPresent(metric.weightUnit) ? normalizeUnit(metric.weightUnit) : metric.weightUnit,
             weightKg: undefined
         };
     }
 
-    const numericWeight = Number(set.weight);
+    const numericWeight = Number(metric.weight);
     if (!Number.isFinite(numericWeight)) {
-        return set;
+        return metric;
     }
 
-    const weightUnit = normalizeUnit(set.weightUnit);
+    const weightUnit = normalizeUnit(metric.weightUnit);
     const weightKg = weightUnit === 'lb' ? numericWeight * KG_PER_LB : numericWeight;
 
     return {
-        ...set,
+        ...metric,
         weight: numericWeight,
         weightUnit,
         weightKg
+    };
+};
+
+const normalizeSet = (set = {}) => {
+    const normalizedSet = normalizeMetricBlock(set);
+    const normalizedSegments = Array.isArray(set.segments)
+        ? set.segments.map((segment) => normalizeMetricBlock(segment))
+        : undefined;
+
+    return {
+        ...normalizedSet,
+        segments: normalizedSegments
     };
 };
 

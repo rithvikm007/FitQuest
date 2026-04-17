@@ -1,5 +1,5 @@
 import { getDatabase, initDatabase } from '@/database/index';
-import type { Exercise, SyncStatus, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
+import type { Exercise, SetSegment, SyncStatus, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
 
 // ============================================================================
 // Row Types (SQLite → TypeScript)
@@ -38,6 +38,7 @@ type WorkoutSetRow = {
   duration: number | null;
   distance: number | null;
   notes: string | null;
+  segmentsJson: string | null;
   orderIndex: number;
   createdAt: string;
 };
@@ -135,6 +136,7 @@ function mapWorkoutSetRow(row: WorkoutSetRow): WorkoutSet {
     duration: row.duration ?? undefined,
     distance: row.distance ?? undefined,
     notes: row.notes ?? undefined,
+    segments: parseSetSegments(row.segmentsJson),
     orderIndex: row.orderIndex,
     createdAt: row.createdAt,
   };
@@ -151,6 +153,26 @@ function parseJsonArray(value: string | null, fieldName: string): string[] {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`Invalid JSON in ${fieldName}: ${msg}`);
   }
+}
+
+function parseSetSegments(value: string | null): SetSegment[] | undefined {
+  if (!value) return undefined;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed as SetSegment[];
+  } catch {
+    return undefined;
+  }
+}
+
+function serializeSetSegments(segments: SetSegment[] | undefined): string | null {
+  if (!segments || segments.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(segments);
 }
 
 function mapExerciseRow(row: ExerciseRow): Exercise {
@@ -283,9 +305,9 @@ export async function saveWorkout(
         await db.runAsync(
           `
             INSERT INTO workout_sets (
-              id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, orderIndex, createdAt
+              id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, segmentsJson, orderIndex, createdAt
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           `,
           [
             s.id ?? generateUuid(),
@@ -297,6 +319,7 @@ export async function saveWorkout(
             s.duration ?? null,
             s.distance ?? null,
             s.notes ?? null,
+            serializeSetSegments(s.segments),
             s.orderIndex,
             s.createdAt ?? now,
           ]
@@ -502,20 +525,21 @@ export async function updateWorkout(
           await db.runAsync(
             `
               INSERT INTO workout_sets (
-                  id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, orderIndex, createdAt
+                  id, workoutExerciseId, reps, weight, weightUnit, weightKg, duration, distance, notes, segmentsJson, orderIndex, createdAt
               )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             `,
             [
               s.id ?? generateUuid(),
               s.workoutExerciseId,
               s.reps ?? null,
               s.weight ?? null,
-                s.weightUnit ?? null,
-                s.weightKg ?? null,
+              s.weightUnit ?? null,
+              s.weightKg ?? null,
               s.duration ?? null,
               s.distance ?? null,
               s.notes ?? null,
+              serializeSetSegments(s.segments),
               s.orderIndex,
               s.createdAt ?? now,
             ]
