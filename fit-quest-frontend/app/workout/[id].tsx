@@ -291,7 +291,7 @@ export default function WorkoutDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
-      <ScrollView className="flex-1 bg-[#141313]" contentContainerClassName="gap-5 px-5 pb-8 pt-5">
+      <ScrollView className="flex-1 bg-[#141313]" contentContainerClassName="gap-5 px-5 pb-8 pt-4">
         <Stack.Screen
         options={{
           title: workout.name?.trim() || 'Workout',
@@ -324,20 +324,20 @@ export default function WorkoutDetailScreen() {
           </View>
           <Text className="text-xs uppercase tracking-[1px] text-neutral-400">{formatWorkoutDate(workout.date)}</Text>
         </View>
-        <Text className="mt-3 text-5xl font-black text-white">{workout.name?.trim() || 'Workout'}</Text>
+        <Text className="mt-3 text-4xl font-black text-white">{workout.name?.trim() || 'Workout'}</Text>
         {workout.notes ? <Text className="mt-3 text-sm leading-6 text-neutral-200">{workout.notes}</Text> : null}
         </View>
 
         <View className="flex-row gap-3">
         <View className="flex-1 rounded-2xl border border-white/10 bg-[#1B1B1F] p-4">
           <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Total Sets</Text>
-          <Text className="mt-2 text-4xl font-black text-[#DBB8FF]">
+          <Text className="mt-2 text-3xl font-black text-[#DBB8FF]">
             {workout.exercises.reduce((total, item) => total + item.sets.length, 0)}
           </Text>
         </View>
         <View className="flex-1 rounded-2xl border border-white/10 bg-[#1B1B1F] p-4">
           <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Exercises</Text>
-          <Text className="mt-2 text-4xl font-black text-white">{workout.exercises.length}</Text>
+          <Text className="mt-2 text-3xl font-black text-white">{workout.exercises.length}</Text>
         </View>
         </View>
 

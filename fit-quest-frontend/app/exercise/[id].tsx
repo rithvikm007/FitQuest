@@ -3,11 +3,16 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ExercisePBPanel } from '@/components/common/ExercisePBPanel';
+import { ExerciseAnalyticsSummary } from '@/components/common/ExerciseAnalyticsSummary';
+import { ExerciseTrendPanel } from '@/components/common/ExerciseTrendPanel';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ThemedConfirmModal } from '@/components/common/ThemedConfirmModal';
 import { useSync } from '@/contexts/SyncContext';
+import { getExerciseAnalytics } from '@/services/analytics/exerciseAnalyticsService';
 import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { deleteExercise, getExerciseById } from '@/services/db/exerciseDbService';
+import type { ExerciseAnalytics } from '@/services/analytics/types';
 import type { Exercise } from '@/types/models';
 
 export default function ExerciseDetailScreen() {
@@ -20,6 +25,9 @@ export default function ExerciseDetailScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [analytics, setAnalytics] = useState<ExerciseAnalytics | null>(null);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const loadExercise = async () => {
     if (!id) {
@@ -43,6 +51,31 @@ export default function ExerciseDetailScreen() {
 
   useEffect(() => {
     loadExercise();
+  }, [id]);
+
+  useEffect(() => {
+    const loadAnalytics = async () => {
+      if (!id) {
+        setAnalytics(null);
+        setAnalyticsError('Missing exercise ID in route.');
+        return;
+      }
+
+      try {
+        setIsAnalyticsLoading(true);
+        const nextAnalytics = await getExerciseAnalytics(id);
+        setAnalytics(nextAnalytics);
+        setAnalyticsError(null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setAnalytics(null);
+        setAnalyticsError(message);
+      } finally {
+        setIsAnalyticsLoading(false);
+      }
+    };
+
+    void loadAnalytics();
   }, [id]);
 
   const handleDeleteExercise = async () => {
@@ -142,6 +175,24 @@ export default function ExerciseDetailScreen() {
           </View>
         </View>
       </View>
+
+      <ExerciseAnalyticsSummary
+        analytics={analytics}
+        isLoading={isAnalyticsLoading}
+        error={analyticsError}
+      />
+
+      <ExercisePBPanel
+        analytics={analytics}
+        isLoading={isAnalyticsLoading}
+        error={analyticsError}
+      />
+
+      <ExerciseTrendPanel
+        analytics={analytics}
+        isLoading={isAnalyticsLoading}
+        error={analyticsError}
+      />
 
       <View className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
         <Text className="text-sm font-semibold uppercase tracking-wide text-neutral-300">Muscles</Text>

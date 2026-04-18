@@ -594,12 +594,12 @@ export default function PlanFormScreen() {
     <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: isEditMode ? 'Edit Plan' : 'New Plan' }} />
 
-      <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-32 pt-6">
+      <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-28 pt-4">
         <View className="gap-2">
           <View className="self-start rounded-full border border-white/10 bg-[#1E1E22] px-3 py-1.5">
             <Text className="text-xs uppercase tracking-[2px] text-amber-300">Builder Mode</Text>
           </View>
-          <Text className="text-5xl font-black text-[#DBB8FF]">Architect Your Growth.</Text>
+          <Text className="text-4xl font-black text-[#DBB8FF]">Architect Your Growth.</Text>
           <Text className="text-sm text-neutral-300">Build your workout template with target sets.</Text>
         </View>
 

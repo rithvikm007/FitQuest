@@ -93,19 +93,27 @@ export default function ExerciseLibraryScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
-      <View className="bg-[#2A2A2D]/90 px-5 pb-4 pt-6">
+      <View className="bg-[#2A2A2D]/90 px-5 pb-3 pt-4">
         <View className="flex-row items-center justify-between">
-          <Text className="text-2xl font-bold text-white">Exercise Library</Text>
+          <View className="flex-row items-center gap-3">
+            <Pressable
+              className="h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5"
+              onPress={() => router.back()}
+            >
+              <MaterialIcons name="arrow-back" size={18} color="#FFFFFF" />
+            </Pressable>
+            <Text className="text-2xl font-bold text-white">Exercise Library</Text>
+          </View>
           <View className="rounded-full border border-violet-300/30 bg-violet-300/10 px-3 py-1.5">
             <Text className="text-xs font-semibold text-violet-200">{pendingCount} Pending</Text>
           </View>
         </View>
-        <Text className="mt-2 text-sm text-neutral-400">Create and manage custom exercises.</Text>
+        <Text className="mt-1 text-xs text-neutral-400">Create and manage custom exercises.</Text>
       </View>
 
       {error ? <Text className="px-5 pt-2 text-sm text-red-300">{error}</Text> : null}
 
-      <View className="flex-row items-center gap-3 px-5 pt-4">
+      <View className="flex-row items-center gap-3 px-5 pt-3">
         <View className="flex-1 rounded-2xl border border-white/10 bg-[#1D1D20] px-4 py-3">
           <TextInput
             value={searchText}

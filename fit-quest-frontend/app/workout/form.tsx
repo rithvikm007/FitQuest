@@ -12,9 +12,16 @@ import { getExerciseById } from '@/services/db/exerciseDbService';
 import { getPlanById } from '@/services/db/planDbService';
 import { addToSyncQueue } from '@/services/db/syncQueueService';
 import { getWorkoutById, saveWorkout } from '@/services/db/workoutDbService';
+import { getExerciseAnalytics } from '@/services/analytics/exerciseAnalyticsService';
+import {
+  detectPersonalBestChangesForExercises,
+  type PersonalBestDelta,
+} from '@/services/analytics/personalBestService';
+import type { ExercisePersonalBests } from '@/services/analytics/types';
 import type { Exercise, ExerciseType, WeightUnit, Workout, WorkoutExercise, WorkoutSet } from '@/types/models';
 
 const EXERCISE_PICKER_SELECTION_KEY = '@fitquest_exercise_picker_selection';
+const LAST_WORKOUT_PB_DELTAS_KEY = '@fitquest_last_workout_pb_deltas';
 
 type TableColumn = 'reps' | 'weight' | 'duration' | 'distance';
 
@@ -166,6 +173,25 @@ function toDraftSetFromPersistedSet(setRow: WorkoutSet): DraftSet {
     })),
     notes: setRow.notes ?? '',
   };
+}
+
+async function capturePersonalBestSnapshots(
+  exerciseIds: string[]
+): Promise<Map<string, ExercisePersonalBests | null>> {
+  const uniqueExerciseIds = [...new Set(exerciseIds)];
+
+  const entries = await Promise.all(
+    uniqueExerciseIds.map(async (exerciseId) => {
+      try {
+        const analytics = await getExerciseAnalytics(exerciseId);
+        return [exerciseId, analytics.personalBests] as const;
+      } catch {
+        return [exerciseId, null] as const;
+      }
+    })
+  );
+
+  return new Map<string, ExercisePersonalBests | null>(entries);
 }
 
 export default function WorkoutFormScreen() {
@@ -574,6 +600,9 @@ export default function WorkoutFormScreen() {
         });
       });
 
+      const affectedExerciseIds = [...new Set(workoutExercises.map((exercise) => exercise.exerciseId))];
+      const beforePbsByExercise = await capturePersonalBestSnapshots(affectedExerciseIds);
+
       const savedWorkoutId = await saveWorkout(workoutPayload, workoutExercises, workoutSets);
       const operation = existingWorkout ? 'update' : 'create';
 
@@ -584,6 +613,21 @@ export default function WorkoutFormScreen() {
         exercises: workoutExercises,
         sets: workoutSets,
       });
+
+      const afterPbsByExercise = await capturePersonalBestSnapshots(affectedExerciseIds);
+      const personalBestDeltas: PersonalBestDelta[] = detectPersonalBestChangesForExercises(
+        affectedExerciseIds.map((exerciseId) => ({
+          exerciseId,
+          previous: beforePbsByExercise.get(exerciseId) ?? null,
+          next: afterPbsByExercise.get(exerciseId) ?? null,
+        }))
+      );
+
+      if (personalBestDeltas.length > 0) {
+        await AsyncStorage.setItem(LAST_WORKOUT_PB_DELTAS_KEY, JSON.stringify(personalBestDeltas));
+      } else {
+        await AsyncStorage.removeItem(LAST_WORKOUT_PB_DELTAS_KEY);
+      }
 
       await getPendingChanges();
       router.replace({ pathname: '/workout/[id]', params: { id: savedWorkoutId } } as never);
@@ -607,9 +651,9 @@ export default function WorkoutFormScreen() {
     <SafeAreaView className="flex-1 bg-[#141313]" edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: isEditMode ? 'Edit Workout' : 'New Workout' }} />
 
-      <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-32 pt-6">
+      <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-28 pt-4">
         <View className="gap-2">
-          <Text className="text-5xl font-black text-white">
+          <Text className="text-4xl font-black text-white">
             {isEditMode ? 'Edit Session' : workoutName.trim() || 'New Workout Session'}
           </Text>
           <Text className="text-sm text-neutral-300">

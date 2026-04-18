@@ -8,7 +8,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "vitest run",
+    "test:analytics": "vitest run services/analytics/__tests__/analyticsCalculators.a2.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -53,7 +55,8 @@
     "baseline-browser-mapping": "^2.10.7",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^3.2.4"
   },
   "private": true
 }

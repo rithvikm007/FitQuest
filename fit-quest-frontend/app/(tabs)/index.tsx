@@ -160,7 +160,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView className="flex-1 bg-[#141313]" edges={['top']}>
       <ScrollView className="flex-1" contentContainerClassName="pb-6">
-        <View className="flex-row items-center justify-between bg-[#0B0B0D] px-5 pb-4 pt-6">
+        <View className="flex-row items-center justify-between bg-[#0B0B0D] px-5 pb-3 pt-4">
           <Text className="text-2xl font-bold text-white">FitQuest</Text>
           <View className="flex-row items-center gap-3">
             <Pressable
@@ -183,10 +183,10 @@ export default function HomeScreen() {
 
         {error ? <Text className="px-5 pt-3 text-sm text-red-300">{error}</Text> : null}
 
-        <View className="px-5 pt-4">
+        <View className="px-5 pt-3">
           <View className="overflow-hidden rounded-3xl border border-white/10 bg-[#1B1B1F] p-4">
             <Text className="text-xs uppercase tracking-[2px] text-neutral-400">Weekly Momentum</Text>
-            <Text className="mt-2 text-5xl font-black text-[#DBB8FF]">{String(weeklyMomentum).padStart(2, '0')}</Text>
+            <Text className="mt-2 text-4xl font-black text-[#DBB8FF]">{String(weeklyMomentum).padStart(2, '0')}</Text>
             <Text className="mt-1 text-base text-neutral-200">Workouts completed</Text>
             <View className="mt-4 flex-row items-end gap-2">
               {progressBars.map((bar) => (
